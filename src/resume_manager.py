@@ -30,19 +30,24 @@ def save_tailored_resume(content, job_id, output_dir="resumes/tailored"):
         
         # Robust PDF generation
         pdf = FPDF()
+        pdf.set_auto_page_break(auto=True, margin=15)
         pdf.add_page()
-        pdf.set_font("Helvetica", size=10) # Using standard font
+        pdf.set_font("Helvetica", size=10)
+        
+        # Set margins explicitly
+        pdf.set_left_margin(10)
+        pdf.set_right_margin(10)
         
         # Split content into manageable chunks
         lines = content.split("\n")
         for line in lines:
-            # Clean string for FPDF (handles common non-latin characters)
+            # Clean string for FPDF
             clean_line = line.encode('latin-1', 'replace').decode('latin-1')
             if clean_line.strip() == "":
                 pdf.ln(5)
             else:
-                # multi_cell automatically wraps text within margins
-                pdf.multi_cell(0, 6, clean_line)
+                # Use a safe width (e.g., 190mm for A4)
+                pdf.multi_cell(190, 6, clean_line)
             
         pdf.output(pdf_path)
         logger.info(f"Saved tailored resume: {pdf_path}")
