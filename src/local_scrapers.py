@@ -5,93 +5,87 @@ from .logger import logger
 from datetime import datetime
 
 async def scrape_indeed_playwright(keywords, locations, max_items=10):
-    """Headful Indeed Scraper to handle Cloudflare/Captchas manually if needed"""
+    """
+    Indeed Scraper using a search-by-URL approach which is often more stable.
+    """
     jobs = []
     async with async_playwright() as p:
-        # Launching HEADFUL so you can see it and solve captchas if they appear
-        browser = await p.chromium.launch(headless=False)
+        # Launching with specific arguments to reduce bot detection
+        browser = await p.chromium.launch(
+            headless=False,
+            args=["--disable-blink-features=AutomationControlled"]
+        )
         context = await browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
-            viewport={'width': 1920, 'height': 1080}
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+            viewport={'width': 1366, 'height': 768}
         )
         page = await context.new_page()
         
-        # Give a small hint to user
-        logger.info("Starting headful browser. If a captcha appears, please solve it in the window!")
-
         for kw in keywords:
             for loc in locations:
                 domain = "in.indeed.com" if loc.lower() == "india" else "www.indeed.com"
+                # Updated search URL format
                 search_url = f"https://{domain}/jobs?q={kw.replace(' ', '+')}&l={loc.replace(' ', '+')}&fromage=7"
-                logger.info(f"Local Headful Scraping Indeed: {kw} in {loc}...")
+                logger.info(f"Navigating to Indeed Search: {search_url}")
                 
                 try:
-                    # Longer timeout for manual intervention if needed
-                    await page.goto(search_url, wait_until="load", timeout=120000)
-                    
-                    # Wait for either job cards or a captcha
-                    await asyncio.sleep(5) # Give it time to render
+                    await page.goto(search_url, wait_until="load", timeout=90000)
+                    await asyncio.sleep(7) # Wait for Cloudflare/Loaders
 
-                    selectors = [".job_seen_beacon", ".result", "[data-testid='jobListing']"]
-                    found_selector = None
-                    for s in selectors:
+                    # Indeed often uses 'Mosaic' layout. Let's look for the main container.
+                    await page.wait_for_selector("#mosaic-provider-jobcards", timeout=20000)
+                    
+                    # More generic selector for job links which usually contain the title
+                    job_links = await page.query_selector_all("a[id^='job_'], a.jcs-JobTitle")
+                    logger.info(f"Found {len(job_links)} job title links.")
+
+                    for link in job_links[:max_items]:
                         try:
-                            await page.wait_for_selector(s, timeout=10000)
-                            found_selector = s
-                            break
-                        except:
-                            continue
-                    
-                    if not found_selector:
-                        logger.warning(f"No job cards found. Please check the browser window.")
-                        await asyncio.sleep(10) # Wait for user to maybe solve captcha
-                        # Try one more time
-                        for s in selectors:
-                            try:
-                                await page.wait_for_selector(s, timeout=5000)
-                                found_selector = s
-                                break
-                            except:
-                                continue
-
-                    if found_selector:
-                        cards = await page.query_selector_all(found_selector)
-                        logger.info(f"Found {len(cards)} potential jobs.")
-
-                        for card in cards[:max_items]:
-                            try:
-                                title_el = await card.query_selector("h2.jobTitle, .jobTitle")
-                                company_el = await card.query_selector("[data-testid='company-name'], .companyName")
-                                location_el = await card.query_selector("[data-testid='text-location'], .companyLocation")
+                            # Scroll link into view to trigger lazy loading
+                            await link.scroll_into_view_if_needed()
+                            
+                            title = (await link.inner_text()).strip()
+                            
+                            # Navigate to company and location from parent container
+                            container = await page.evaluate_handle("(el) => el.closest('.job_seen_beacon') || el.parentElement.parentElement", link)
+                            
+                            company = "Unknown"
+                            location = loc
+                            
+                            if container:
+                                company_el = await container.query_selector("[data-testid='company-name']")
+                                if company_el:
+                                    company = (await company_el.inner_text()).strip()
                                 
-                                if title_el:
-                                    title = (await title_el.inner_text()).strip()
-                                    company = (await company_el.inner_text()).strip() if company_el else "Unknown"
-                                    location = (await location_el.inner_text()).strip() if location_el else loc
-                                    
-                                    job_id = f"{title}_{company}_{location}".replace(" ", "")[:30]
+                                loc_el = await container.query_selector("[data-testid='text-location']")
+                                if loc_el:
+                                    location = (await loc_el.inner_text()).strip()
 
-                                    jobs.append({
-                                        "job_id_external": f"indeed_hf_{job_id}_{random.randint(100, 999)}",
-                                        "title": title,
-                                        "company": company,
-                                        "location": location,
-                                        "url": page.url,
-                                        "source": "indeed",
-                                        "description": f"Role: {title} at {company}. Scraped via headful local agent.",
-                                        "posted_date": datetime.now()
-                                    })
-                            except Exception as inner_e:
-                                logger.error(f"Card parse error: {inner_e}")
+                            job_id = f"ind_{random.randint(10000, 99999)}"
+                            url = await link.get_attribute("href")
+                            if url and not url.startswith("http"):
+                                url = f"https://{domain}{url}"
+
+                            jobs.append({
+                                "job_id_external": f"indeed_gen_{job_id}",
+                                "title": title,
+                                "company": company,
+                                "location": location,
+                                "url": url,
+                                "source": "indeed",
+                                "description": f"Role: {title} at {company}. Scraped via stable-link agent.",
+                                "posted_date": datetime.now()
+                            })
+                        except Exception as inner_e:
+                            logger.error(f"Link parse error: {inner_e}")
                             
                 except Exception as e:
-                    logger.error(f"Local Indeed headful error: {e}")
+                    logger.error(f"Local Indeed stable-link error: {e}")
+                    await page.screenshot(path="logs/indeed_debug.png")
                 
-                await asyncio.sleep(random.uniform(5, 8))
+                await asyncio.sleep(random.uniform(5, 10))
         await browser.close()
     return jobs
 
 async def fetch_local_jobs_async(keywords, locations):
-    all_jobs = []
-    all_jobs.extend(await scrape_indeed_playwright(keywords, locations, 10))
-    return all_jobs
+    return await scrape_indeed_playwright(keywords, locations, 10)
