@@ -11,3 +11,4 @@ requests
 pyyaml
 pytest
 pytest-asyncio
+fpdf2
