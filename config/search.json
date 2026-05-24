@@ -1,16 +1,10 @@
 {
     "keywords": [
-        "Site Reliability Engineer",
-        "SRE",
-        "DevOps Engineer",
-        "Cloud Engineer",
-        "Infrastructure Engineer"
+        "Site Reliability Engineer"
     ],
     "locations": [
-        "United States",
-        "India",
-        "Remote"
+        "United States"
     ],
-    "max_items_per_search": 20,
+    "max_items_per_search": 150,
     "match_threshold": 0.6
 }

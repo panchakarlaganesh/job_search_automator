@@ -38,15 +38,21 @@ async def run_automation():
         
         new_jobs_count = 0
         for raw_job in raw_jobs:
-            # Check if exists
-            existing = db.query(Job).filter(Job.job_id_external == raw_job["job_id_external"]).first()
-            if not existing:
-                job = Job(**raw_job)
-                db.add(job)
-                new_jobs_count += 1
+            try:
+                # Check if exists
+                existing = db.query(Job).filter(Job.job_id_external == raw_job["job_id_external"]).first()
+                if not existing:
+                    job = Job(**raw_job)
+                    db.add(job)
+                    db.flush() # Flush to catch integrity errors early
+                    new_jobs_count += 1
+            except Exception as e:
+                logger.warning(f"Failed to ingest job {raw_job.get('job_id_external')}: {e}")
+                db.rollback() # Rollback the current failed job insert
+                continue
         
         db.commit()
-        logger.info(f"Found {len(raw_jobs)} jobs, {new_jobs_count} are new.")
+        logger.info(f"Scrape complete. Found {len(raw_jobs)} jobs, {new_jobs_count} were newly added.")
 
         # 3. Match & Tailor
         base_resumes = get_base_resumes()
