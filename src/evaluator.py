@@ -1,6 +1,7 @@
 import os
 import json
 import requests
+import re
 import google.generativeai as genai
 from dotenv import load_dotenv
 from .logger import logger
@@ -20,6 +21,15 @@ if api_key:
 else:
     gemini_model = None
 
+def clean_json_response(text):
+    """Robustly extract JSON from a potentially messy LLM response"""
+    if not text: return ""
+    # Look for [ { ... } ] or { ... }
+    match = re.search(r'(\[.*\]|\{.*\})', text, re.DOTALL)
+    if match:
+        return match.group(1)
+    return text
+
 def call_local_llm(prompt, json_mode=False):
     payload = {
         "model": OLLAMA_MODEL,
@@ -30,7 +40,7 @@ def call_local_llm(prompt, json_mode=False):
         payload["format"] = "json"
         
     try:
-        response = requests.post(OLLAMA_URL, json=payload, timeout=90) # Increased timeout for 7b model
+        response = requests.post(OLLAMA_URL, json=payload, timeout=90)
         response.raise_for_status()
         return response.json().get("response", "")
     except Exception as e:
@@ -43,7 +53,7 @@ def batch_evaluate_matches(jobs_data, base_resume_content):
         
     jobs_str = ""
     for i, job in enumerate(jobs_data):
-        jobs_str += f"--- JOB {i} (ID: {job['id']}) ---\nTitle: {job['title']}\nDescription: {job['description'][:1000]}\n\n"
+        jobs_str += f"--- JOB (ID: {job['id']}) ---\nTitle: {job['title']}\nDescription: {job['description'][:1000]}\n\n"
 
     prompt = f"""
     Evaluate the match between the following jobs and the candidate's resume.
@@ -54,9 +64,15 @@ def batch_evaluate_matches(jobs_data, base_resume_content):
     Jobs to Evaluate:
     {jobs_str}
     
-    Return a JSON list of objects. Each object MUST have:
-    "id" (int), "score" (float 0-1), and "reason" (string).
-    Output ONLY the JSON list.
+    Return a valid JSON list of objects. Each object MUST have:
+    "id" (the integer ID provided), "score" (float 0-1), and "reason" (string).
+    
+    Example:
+    [
+      {{"id": 1, "score": 0.85, "reason": "Matches Kubernetes and AWS requirements."}}
+    ]
+    
+    Output ONLY the raw JSON list. No preamble or markdown.
     """
     
     response_text = ""
@@ -67,19 +83,22 @@ def batch_evaluate_matches(jobs_data, base_resume_content):
         logger.warning("!!! Hitting Gemini API (Paid) for batch evaluation !!!")
         if not gemini_model: return []
         response = gemini_model.generate_content(prompt)
-        response_text = response.text.replace("```json", "").replace("```", "").strip()
+        response_text = response.text
 
     if not response_text:
         return []
 
     try:
-        return json.loads(response_text)
+        # Clean the text before parsing
+        cleaned_text = clean_json_response(response_text)
+        data = json.loads(cleaned_text)
+        # Ensure it's a list
+        return data if isinstance(data, list) else [data]
     except Exception as e:
         logger.error(f"JSON Parse error: {e}. Raw response: {response_text[:200]}")
         return []
 
 def evaluate_match(job_title, job_description, base_resume_content):
-    """Fallback for single job evaluation"""
     results = batch_evaluate_matches([{'id': 0, 'title': job_title, 'description': job_description}], base_resume_content)
     if results:
         return results[0].get("score", 0.0), results[0].get("reason", "")
@@ -87,13 +106,13 @@ def evaluate_match(job_title, job_description, base_resume_content):
 
 def tailor_resume(job_description, base_resume_content):
     prompt = f"""
-    Modify this resume to match the job description. 
+    Modify this resume to match the job description. Highlight Kubernetes, Terraform, and Python automation.
     Adjust about 30% of content. Keep Markdown format.
     
     Job: {job_description[:1000]}
     Resume: {base_resume_content}
     
-    Return ONLY the modified Markdown.
+    Return ONLY the modified Markdown. No preamble.
     """
     
     if USE_LOCAL_LLM:
