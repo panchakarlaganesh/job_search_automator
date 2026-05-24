@@ -5,83 +5,89 @@ from .logger import logger
 from datetime import datetime
 
 async def scrape_indeed_playwright(keywords, locations, max_items=10):
-    """Enhanced stealth Indeed Scraper"""
+    """Headful Indeed Scraper to handle Cloudflare/Captchas manually if needed"""
     jobs = []
     async with async_playwright() as p:
-        # Launching with more "human" defaults
-        browser = await p.chromium.launch(headless=True)
+        # Launching HEADFUL so you can see it and solve captchas if they appear
+        browser = await p.chromium.launch(headless=False)
         context = await browser.new_context(
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
             viewport={'width': 1920, 'height': 1080}
         )
         page = await context.new_page()
         
+        # Give a small hint to user
+        logger.info("Starting headful browser. If a captcha appears, please solve it in the window!")
+
         for kw in keywords:
             for loc in locations:
                 domain = "in.indeed.com" if loc.lower() == "india" else "www.indeed.com"
                 search_url = f"https://{domain}/jobs?q={kw.replace(' ', '+')}&l={loc.replace(' ', '+')}&fromage=7"
-                logger.info(f"Local Stealth Scraping Indeed: {kw} in {loc}...")
+                logger.info(f"Local Headful Scraping Indeed: {kw} in {loc}...")
                 
                 try:
-                    await page.goto(search_url, wait_until="networkidle", timeout=60000)
+                    # Longer timeout for manual intervention if needed
+                    await page.goto(search_url, wait_until="load", timeout=120000)
                     
-                    # Scroll to mimic human
-                    for _ in range(3):
-                        await page.mouse.wheel(0, 500)
-                        await asyncio.sleep(random.uniform(0.5, 1.5))
+                    # Wait for either job cards or a captcha
+                    await asyncio.sleep(5) # Give it time to render
 
-                    # Indeed often uses different layouts. Let's try multiple selectors.
                     selectors = [".job_seen_beacon", ".result", "[data-testid='jobListing']"]
                     found_selector = None
                     for s in selectors:
                         try:
-                            await page.wait_for_selector(s, timeout=5000)
+                            await page.wait_for_selector(s, timeout=10000)
                             found_selector = s
                             break
                         except:
                             continue
                     
                     if not found_selector:
-                        # Take a screenshot for debugging if it fails
-                        logger.warning(f"No job cards found on {domain}. Anti-bot might be triggered.")
-                        await page.screenshot(path=f"logs/indeed_fail_{domain}.png")
-                        continue
+                        logger.warning(f"No job cards found. Please check the browser window.")
+                        await asyncio.sleep(10) # Wait for user to maybe solve captcha
+                        # Try one more time
+                        for s in selectors:
+                            try:
+                                await page.wait_for_selector(s, timeout=5000)
+                                found_selector = s
+                                break
+                            except:
+                                continue
 
-                    cards = await page.query_selector_all(found_selector)
-                    logger.info(f"Found {len(cards)} potential jobs on {domain}.")
+                    if found_selector:
+                        cards = await page.query_selector_all(found_selector)
+                        logger.info(f"Found {len(cards)} potential jobs.")
 
-                    for card in cards[:max_items]:
-                        try:
-                            # Try multiple title selectors
-                            title_el = await card.query_selector("h2.jobTitle, .jobTitle, [id^='job_']")
-                            company_el = await card.query_selector("[data-testid='company-name'], .companyName")
-                            location_el = await card.query_selector("[data-testid='text-location'], .companyLocation")
-                            
-                            if title_el:
-                                title = (await title_el.inner_text()).strip()
-                                company = (await company_el.inner_text()).strip() if company_el else "Unknown"
-                                location = (await location_el.inner_text()).strip() if location_el else loc
+                        for card in cards[:max_items]:
+                            try:
+                                title_el = await card.query_selector("h2.jobTitle, .jobTitle")
+                                company_el = await card.query_selector("[data-testid='company-name'], .companyName")
+                                location_el = await card.query_selector("[data-testid='text-location'], .companyLocation")
                                 
-                                # Use a stable hash-like ID for deduplication
-                                job_id = f"{title}_{company}_{location}".replace(" ", "")[:30]
+                                if title_el:
+                                    title = (await title_el.inner_text()).strip()
+                                    company = (await company_el.inner_text()).strip() if company_el else "Unknown"
+                                    location = (await location_el.inner_text()).strip() if location_el else loc
+                                    
+                                    job_id = f"{title}_{company}_{location}".replace(" ", "")[:30]
 
-                                jobs.append({
-                                    "job_id_external": f"indeed_st_{job_id}_{random.randint(100, 999)}",
-                                    "title": title,
-                                    "company": company,
-                                    "location": location,
-                                    "url": page.url, # URL extraction from cards is complex on Indeed due to redirects
-                                    "source": "indeed",
-                                    "description": f"Role: {title} at {company}. Scraped via stealth local agent.",
-                                    "posted_date": datetime.now()
-                                })
-                        except Exception as inner_e:
-                            logger.error(f"Card parse error: {inner_e}")
+                                    jobs.append({
+                                        "job_id_external": f"indeed_hf_{job_id}_{random.randint(100, 999)}",
+                                        "title": title,
+                                        "company": company,
+                                        "location": location,
+                                        "url": page.url,
+                                        "source": "indeed",
+                                        "description": f"Role: {title} at {company}. Scraped via headful local agent.",
+                                        "posted_date": datetime.now()
+                                    })
+                            except Exception as inner_e:
+                                logger.error(f"Card parse error: {inner_e}")
                             
                 except Exception as e:
-                    logger.error(f"Local Indeed stealth error: {e}")
+                    logger.error(f"Local Indeed headful error: {e}")
                 
-                await asyncio.sleep(random.uniform(5, 10))
+                await asyncio.sleep(random.uniform(5, 8))
         await browser.close()
     return jobs
 
