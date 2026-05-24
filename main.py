@@ -1,0 +1,132 @@
+import os
+import json
+import asyncio
+import subprocess
+from datetime import datetime
+from dotenv import load_dotenv
+from src.database import SessionLocal, init_db
+from src.models import Job, JobStatus, RunLog
+from src.scrapers import fetch_all_jobs
+from src.evaluator import evaluate_match, tailor_resume
+from src.resume_manager import get_base_resumes, read_resume, save_tailored_resume
+from src.applier import get_applier
+from src.notifications import notify_application, notify_intervention
+from src.logger import logger
+
+load_dotenv()
+
+async def run_automation():
+    init_db()
+    db = SessionLocal()
+    run_log = RunLog(status="running")
+    db.add(run_log)
+    db.commit()
+
+    try:
+        # 1. Load Config
+        with open("config/search.json", "r") as f:
+            config = json.load(f)
+        
+        keywords = config.get("keywords", [])
+        locations = config.get("locations", [])
+        threshold = config.get("match_threshold", 0.6)
+
+        # 2. Fetch Jobs
+        logger.info("Starting job scrape...")
+        raw_jobs = fetch_all_jobs(keywords, locations)
+        run_log.jobs_found = len(raw_jobs)
+        
+        new_jobs_count = 0
+        for raw_job in raw_jobs:
+            # Check if exists
+            existing = db.query(Job).filter(Job.job_id_external == raw_job["job_id_external"]).first()
+            if not existing:
+                job = Job(**raw_job)
+                db.add(job)
+                new_jobs_count += 1
+        
+        db.commit()
+        logger.info(f"Found {len(raw_jobs)} jobs, {new_jobs_count} are new.")
+
+        # 3. Match & Tailor
+        base_resumes = get_base_resumes()
+        if not base_resumes:
+            logger.warning("No base resumes found in resumes/ directory.")
+            return
+        
+        # Use the first resume as default for matching
+        base_resume_path = os.path.join("resumes", base_resumes[0])
+        base_resume_content = read_resume(base_resume_path)
+
+        jobs_to_process = db.query(Job).filter(Job.status == JobStatus.NEW).all()
+        for job in jobs_to_process:
+            logger.info(f"Evaluating {job.title} at {job.company}")
+            score, reason = evaluate_match(job.title, job.description, base_resume_content)
+            job.match_score = score
+            job.match_reason = reason
+            
+            if score >= threshold:
+                job.status = JobStatus.MATCHED
+                logger.info(f"Match found ({score})! Tailoring resume...")
+                tailored_content = tailor_resume(job.description, base_resume_content)
+                pdf_path = save_tailored_resume(tailored_content, job.id)
+                job.tailored_resume_path = pdf_path
+                job.status = JobStatus.TAILORED
+            else:
+                job.status = JobStatus.MATCH_FAILED
+            
+            db.commit()
+
+        # 4. Auto-Apply (If enabled in .env)
+        if os.getenv("AUTO_APPLY_ENABLED") == "true":
+            jobs_to_apply = db.query(Job).filter(Job.status == JobStatus.TAILORED).all()
+            for job in jobs_to_apply:
+                applier = get_applier(job.url)
+                if applier:
+                    job.status = JobStatus.APPLYING
+                    db.commit()
+                    success = await applier.apply(job, job.tailored_resume_path, base_resume_content)
+                    if success:
+                        job.status = JobStatus.APPLIED
+                        run_log.jobs_applied += 1
+                        notify_application(job.title, job.company, "Applied", job.url)
+                    else:
+                        job.status = JobStatus.MANUAL_INTERVENTION
+                        notify_intervention(job.title, job.company, job.url)
+                else:
+                    logger.info(f"No specific applier for {job.url}, marking for manual intervention.")
+                    job.status = JobStatus.MANUAL_INTERVENTION
+                    notify_intervention(job.title, job.company, job.url)
+                db.commit()
+
+        run_log.status = "success"
+    except Exception as e:
+        logger.error(f"Run failed: {e}")
+        run_log.status = "failed"
+        run_log.error_message = str(e)
+    finally:
+        run_log.end_time = datetime.utcnow()
+        db.commit()
+        db.close()
+        
+        # 5. Auto-Commit to Git
+        auto_commit()
+
+def auto_commit():
+    try:
+        logger.info("Auto-committing changes to Git...")
+        subprocess.run(["git", "add", "."], check=True)
+        # Check if there are changes to commit
+        status = subprocess.run(["git", "status", "--porcelain"], capture_output=True, text=True)
+        if status.stdout.strip():
+            msg = f"Auto-run completed: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+            subprocess.run(["git", "commit", "-m", msg], check=True)
+            # subprocess.run(["git", "push"], check=True) # Uncomment if remote is set
+            logger.info("Committed successfully.")
+        else:
+            logger.info("No changes to commit.")
+    except Exception as e:
+        logger.error(f"Git auto-commit failed: {e}")
+
+if __name__ == "__main__":
+    asyncio.run(run_automation())
