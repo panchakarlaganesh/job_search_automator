@@ -5,10 +5,6 @@ from .logger import logger
 from datetime import datetime
 
 async def scrape_linkedin_playwright(keywords, locations, max_items=10):
-    """
-    Local Playwright-based LinkedIn Scraper (Zero Token Cost)
-    This uses public search pages and avoids login to minimize ban risk.
-    """
     jobs = []
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
@@ -23,9 +19,8 @@ async def scrape_linkedin_playwright(keywords, locations, max_items=10):
                 logger.info(f"Local Scraping LinkedIn: {kw} in {loc}...")
                 
                 try:
-                    await page.goto(search_url, wait_until="networkidle")
-                    # Wait for job cards
-                    await page.wait_for_selector(".base-card", timeout=10000)
+                    await page.goto(search_url, wait_until="networkidle", timeout=60000)
+                    await page.wait_for_selector(".base-card", timeout=15000)
                     
                     cards = await page.query_selector_all(".base-card")
                     for card in cards[:max_items]:
@@ -39,7 +34,6 @@ async def scrape_linkedin_playwright(keywords, locations, max_items=10):
                             company = (await company_el.inner_text()).strip() if company_el else "Unknown"
                             location = (await location_el.inner_text()).strip() if location_el else loc
                             url = await link_el.get_attribute("href")
-                            # Extract clean ID from URL
                             job_id = url.split("?")[0].split("-")[-1] if "-" in url else str(random.randint(1000, 9999))
 
                             jobs.append({
@@ -49,19 +43,18 @@ async def scrape_linkedin_playwright(keywords, locations, max_items=10):
                                 "location": location,
                                 "url": url,
                                 "source": "linkedin",
-                                "description": f"Position: {title} at {company}. Please visit link for full details.", # Full desc requires another click
+                                "description": f"Position: {title} at {company}. Please visit link for full details.",
                                 "posted_date": datetime.now()
                             })
                 except Exception as e:
                     logger.error(f"Local LinkedIn scrape error: {e}")
                 
-                await asyncio.sleep(random.uniform(2, 5)) # Anti-bot delay
+                await asyncio.sleep(random.uniform(2, 4))
 
         await browser.close()
     return jobs
 
 async def scrape_indeed_playwright(keywords, locations, max_items=10):
-    """Local Playwright-based Indeed Scraper"""
     jobs = []
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
@@ -73,8 +66,8 @@ async def scrape_indeed_playwright(keywords, locations, max_items=10):
                 logger.info(f"Local Scraping Indeed: {kw} in {loc}...")
                 
                 try:
-                    await page.goto(search_url, wait_until="domcontentloaded")
-                    await page.wait_for_selector(".job_seen_beacon", timeout=10000)
+                    await page.goto(search_url, wait_until="domcontentloaded", timeout=60000)
+                    await page.wait_for_selector(".job_seen_beacon", timeout=15000)
                     
                     cards = await page.query_selector_all(".job_seen_beacon")
                     for card in cards[:max_items]:
@@ -102,14 +95,8 @@ async def scrape_indeed_playwright(keywords, locations, max_items=10):
         await browser.close()
     return jobs
 
-def fetch_local_jobs(keywords, locations):
-    """Wrapper to run async scrapers in sync main thread if needed"""
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    
+async def fetch_local_jobs_async(keywords, locations):
     all_jobs = []
-    # Using a small subset to verify
-    all_jobs.extend(loop.run_until_complete(scrape_linkedin_playwright(keywords, locations, 5)))
-    # all_jobs.extend(loop.run_until_complete(scrape_indeed_playwright(keywords, locations, 5)))
-    
+    all_jobs.extend(await scrape_linkedin_playwright(keywords, locations, 10))
+    # all_jobs.extend(await scrape_indeed_playwright(keywords, locations, 5))
     return all_jobs

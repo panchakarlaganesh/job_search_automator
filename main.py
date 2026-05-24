@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 from src.database import SessionLocal, init_db
 from src.models import Job, JobStatus, RunLog
 from src.scrapers import fetch_all_jobs
-from src.local_scrapers import fetch_local_jobs
+from src.local_scrapers import fetch_local_jobs_async
 from src.evaluator import evaluate_match, tailor_resume, batch_evaluate_matches
 from src.resume_manager import get_base_resumes, read_resume, save_tailored_resume
 from src.applier import get_applier
@@ -42,7 +42,7 @@ async def run_automation():
 
         if not raw_jobs:
             logger.info("Fetching jobs using local Playwright scrapers...")
-            raw_jobs = fetch_local_jobs(keywords, locations)
+            raw_jobs = await fetch_local_jobs_async(keywords, locations)
         
         run_log.jobs_found = len(raw_jobs)
         
