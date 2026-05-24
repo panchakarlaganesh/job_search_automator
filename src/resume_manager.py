@@ -24,21 +24,28 @@ def save_tailored_resume(content, job_id, output_dir="resumes/tailored"):
     pdf_path = os.path.join(output_dir, f"{job_id}.pdf")
     
     try:
+        # Save Markdown
         with open(md_path, "w", encoding="utf-8") as f:
             f.write(content)
         
-        # Simple PDF generation from text (fpdf2)
+        # Robust PDF generation
         pdf = FPDF()
         pdf.add_page()
-        pdf.set_font("Arial", size=10)
+        pdf.set_font("Helvetica", size=10) # Using standard font
         
-        # Split content by lines and add to PDF
-        for line in content.split("\n"):
-            # Clean non-latin characters if necessary, or just encode as latin-1 for simplicity in this MVP
-            line = line.encode('latin-1', 'replace').decode('latin-1')
-            pdf.multi_cell(0, 5, line)
+        # Split content into manageable chunks
+        lines = content.split("\n")
+        for line in lines:
+            # Clean string for FPDF (handles common non-latin characters)
+            clean_line = line.encode('latin-1', 'replace').decode('latin-1')
+            if clean_line.strip() == "":
+                pdf.ln(5)
+            else:
+                # multi_cell automatically wraps text within margins
+                pdf.multi_cell(0, 6, clean_line)
             
         pdf.output(pdf_path)
+        logger.info(f"Saved tailored resume: {pdf_path}")
         return pdf_path
     except Exception as e:
         logger.error(f"Error saving tailored resume for job {job_id}: {e}")

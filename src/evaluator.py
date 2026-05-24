@@ -53,7 +53,7 @@ def batch_evaluate_matches(jobs_data, base_resume_content):
         
     jobs_str = ""
     for i, job in enumerate(jobs_data):
-        jobs_str += f"--- JOB (ID: {job['id']}) ---\nTitle: {job['title']}\nDescription: {job['description'][:1000]}\n\n"
+        jobs_str += f"--- JOB (INTERNAL_ID: {job['id']}) ---\nTitle: {job['title']}\nDescription: {job['description'][:1000]}\n\n"
 
     prompt = f"""
     Evaluate the match between the following jobs and the candidate's resume.
@@ -65,7 +65,9 @@ def batch_evaluate_matches(jobs_data, base_resume_content):
     {jobs_str}
     
     Return a valid JSON list of objects. Each object MUST have:
-    "id" (the integer ID provided), "score" (float 0-1), and "reason" (string).
+    "id": MUST MATCH THE INTERNAL_ID PROVIDED ABOVE (as an integer).
+    "score": A float between 0 and 1.
+    "reason": A brief explanation.
     
     Example:
     [
