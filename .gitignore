@@ -1,0 +1,12 @@
+venv/
+__pycache__/
+*.pyc
+.env
+data/*.db
+logs/*.log
+resumes/tailored/
+.vscode/
+node_modules/
+dist/
+build/
+*.pdf

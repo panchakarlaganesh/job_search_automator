@@ -1,0 +1,13 @@
+apify-client
+playwright
+streamlit
+openai
+python-dotenv
+pandas
+markdown2
+sqlalchemy
+pydantic
+requests
+pyyaml
+pytest
+pytest-asyncio
