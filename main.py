@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 from src.database import SessionLocal, init_db
 from src.models import Job, JobStatus, RunLog
 from src.scrapers import fetch_all_jobs
-from src.evaluator import evaluate_match, tailor_resume
+from src.evaluator import evaluate_match, tailor_resume, batch_evaluate_matches
 from src.resume_manager import get_base_resumes, read_resume, save_tailored_resume
 from src.applier import get_applier
 from src.notifications import notify_application, notify_intervention
@@ -54,28 +54,42 @@ async def run_automation():
             logger.warning("No base resumes found in resumes/ directory.")
             return
         
-        # Use the first resume as default for matching
         base_resume_path = os.path.join("resumes", base_resumes[0])
         base_resume_content = read_resume(base_resume_path)
 
         jobs_to_process = db.query(Job).filter(Job.status == JobStatus.NEW).all()
-        for job in jobs_to_process:
-            logger.info(f"Evaluating {job.title} at {job.company}")
-            score, reason = evaluate_match(job.title, job.description, base_resume_content)
-            job.match_score = score
-            job.match_reason = reason
+        
+        # Batch evaluation (10 jobs at a time)
+        batch_size = 10
+        for i in range(0, len(jobs_to_process), batch_size):
+            batch = jobs_to_process[i:i + batch_size]
+            batch_data = [{'id': j.id, 'title': j.title, 'description': j.description} for j in batch]
             
-            if score >= threshold:
-                job.status = JobStatus.MATCHED
-                logger.info(f"Match found ({score})! Tailoring resume...")
-                tailored_content = tailor_resume(job.description, base_resume_content)
-                pdf_path = save_tailored_resume(tailored_content, job.id)
-                job.tailored_resume_path = pdf_path
-                job.status = JobStatus.TAILORED
-            else:
-                job.status = JobStatus.MATCH_FAILED
+            logger.info(f"Batch evaluating {len(batch)} jobs...")
+            results = batch_evaluate_matches(batch_data, base_resume_content)
             
-            db.commit()
+            # Map results back to jobs
+            results_map = {r['id']: r for r in results if 'id' in r}
+            
+            for job in batch:
+                res = results_map.get(job.id)
+                if res:
+                    job.match_score = res.get('score', 0.0)
+                    job.match_reason = res.get('reason', "")
+                    
+                    if job.match_score >= threshold:
+                        job.status = JobStatus.MATCHED
+                        logger.info(f"Match found for {job.title} ({job.match_score})! Tailoring resume...")
+                        tailored_content = tailor_resume(job.description, base_resume_content)
+                        pdf_path = save_tailored_resume(tailored_content, job.id)
+                        job.tailored_resume_path = pdf_path
+                        job.status = JobStatus.TAILORED
+                    else:
+                        job.status = JobStatus.MATCH_FAILED
+                else:
+                    logger.warning(f"No evaluation result for job {job.id}")
+                
+                db.commit()
 
         # 4. Auto-Apply (If enabled in .env)
         if os.getenv("AUTO_APPLY_ENABLED") == "true":
