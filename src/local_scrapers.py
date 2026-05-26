@@ -81,7 +81,7 @@ async def scrape_indeed_playwright(keywords, locations, max_items=10):
                             "url": job_url,
                             "source": "indeed",
                             "description": desc,
-                            "posted_at": datetime.now().isoformat()
+                            "posted_date": datetime.now()
                         })
                 except Exception as e:
                     logger.error(f"Indeed scraper failed for {loc}: {e}")
