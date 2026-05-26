@@ -12,14 +12,16 @@ def fetch_all_jobs(keywords, locations, max_items=150):
         return []
 
     client = ApifyClient(api_token)
-    
+
     all_jobs = []
-    
-    # The actor supports multiple keywords, but we'll loop through locations 
+
+    # The actor supports multiple keywords, but we'll loop through locations
     # if there are multiple, as the actor typically handles one location string.
     for location in locations:
+        # Convert keywords list to comma-separated string for Apify
+        keyword_str = ", ".join(keywords) if isinstance(keywords, list) else str(keywords)
         run_input = {
-            "keyword": keywords,
+            "keyword": keyword_str,
             "location": location,
             "maxItems": max_items,
             "publishedAt": "r604800", # Past week
@@ -28,12 +30,12 @@ def fetch_all_jobs(keywords, locations, max_items=150):
         }
 
         try:
-            logger.info(f"Running Apify LinkedIn scraper for keywords {keywords} in {location}...")
+            logger.info(f"Running Apify LinkedIn scraper for keywords {keyword_str} in {location}...")
             # Run the Actor and wait for it to finish
             run = client.actor("cheap_scraper/linkedin-job-scraper").call(run_input=run_input)
 
             # Fetch results from the run's dataset
-            for item in client.dataset(run["defaultDatasetId"]).iterate_items():
+            for item in client.dataset(run.defaultDatasetId).iterate_items():
                 # Map Apify item to our Job model format
                 job_data = {
                     "job_id_external": str(item.get("id", item.get("jobId"))),
@@ -45,13 +47,13 @@ def fetch_all_jobs(keywords, locations, max_items=150):
                     "source": "linkedin",
                     "posted_at": item.get("postedAt")
                 }
-                
+
                 # Basic validation
                 if job_data["job_id_external"] and job_data["title"]:
                     all_jobs.append(job_data)
-                    
+
             logger.info(f"Fetched {len(all_jobs)} jobs from LinkedIn for {location}.")
-            
+
         except Exception as e:
             logger.error(f"Apify LinkedIn scraper failed for {location}: {e}")
 

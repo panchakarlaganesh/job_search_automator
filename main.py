@@ -27,15 +27,16 @@ async def run_automation():
         # 1. Load Config
         with open("config/search.json", "r") as f:
             config = json.load(f)
-        
+
         keywords = config.get("keywords", [])
         locations = config.get("locations", [])
         threshold = config.get("match_threshold", 0.6)
+        max_items = config.get("max_items_per_search", 150)
 
         # 2. Fetch Jobs
         logger.info("Starting job scrape...")
         try:
-            raw_jobs = fetch_all_jobs(keywords, locations)
+            raw_jobs = fetch_all_jobs(keywords, locations, max_items)
         except Exception as e:
             logger.warning(f"Apify scrape failed, falling back to local scrapers: {e}")
             raw_jobs = []
