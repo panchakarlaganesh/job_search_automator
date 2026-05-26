@@ -89,5 +89,58 @@ async def scrape_indeed_playwright(keywords, locations, max_items=10):
         await browser.close()
     return jobs
 
+async def scrape_dice_playwright(keywords, locations, max_items=10):
+    jobs = []
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=True, args=["--disable-blink-features=AutomationControlled"])
+        context = await browser.new_context(user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+        page = await context.new_page()
+        
+        for kw in keywords:
+            for loc in locations:
+                # Dice search URL format
+                url = f"https://www.dice.com/jobs?q={kw.replace(' ', '%20')}&location={loc.replace(' ', '%20')}&pageSize=20&language=en"
+                try:
+                    logger.info(f"Navigating to Dice {loc}...")
+                    await page.goto(url, wait_until="load", timeout=60000)
+                    await asyncio.sleep(5)
+                    
+                    job_cards = await page.query_selector_all("d-job-card, .card")
+                    logger.info(f"Found {len(job_cards)} job cards on Dice ({loc}).")
+                    
+                    seen_urls = set()
+                    for card in job_cards:
+                        if len(jobs) >= max_items: break
+                        
+                        title_elem = await card.query_selector("a.card-title-link, .title")
+                        title = (await title_elem.inner_text()).strip() if title_elem else "Unknown Title"
+                        
+                        link_elem = await card.query_selector("a.card-title-link, a")
+                        job_url = await link_elem.get_attribute("href") if link_elem else ""
+                        
+                        if not job_url or job_url in seen_urls: continue
+                        seen_urls.add(job_url)
+
+                        company_elem = await card.query_selector("[data-cy='card-company-name'], .company")
+                        company = (await company_elem.inner_text()).strip() if company_elem else "Unknown Company"
+                        
+                        jobs.append({
+                            "job_id_external": f"dice_{random.randint(100000, 999999)}",
+                            "title": title,
+                            "company": company,
+                            "location": loc,
+                            "url": job_url,
+                            "source": "dice",
+                            "description": f"Role at {company}",
+                            "posted_date": datetime.now()
+                        })
+                except Exception as e:
+                    logger.error(f"Dice scraper failed for {loc}: {e}")
+                    
+        await browser.close()
+    return jobs
+
 async def fetch_local_jobs_async(keywords, locations):
-    return await scrape_indeed_playwright(keywords, locations, 10)
+    indeed_jobs = await scrape_indeed_playwright(keywords, locations, 10)
+    dice_jobs = await scrape_dice_playwright(keywords, locations, 10)
+    return indeed_jobs + dice_jobs

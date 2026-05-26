@@ -50,6 +50,15 @@ async def run_automation():
         new_jobs_count = 0
         for raw_job in raw_jobs:
             try:
+                # Source correction based on URL
+                url = raw_job.get("url", "").lower()
+                if "linkedin.com" in url:
+                    raw_job["source"] = "linkedin"
+                elif "indeed.com" in url:
+                    raw_job["source"] = "indeed"
+                elif "dice.com" in url:
+                    raw_job["source"] = "dice"
+
                 # Check if exists
                 existing = db.query(Job).filter(Job.job_id_external == raw_job["job_id_external"]).first()
                 if not existing:
