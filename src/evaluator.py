@@ -101,6 +101,7 @@ def batch_evaluate_matches(jobs_data, base_resume_content):
         return data if isinstance(data, list) else [data]
     except Exception as e:
         logger.error(f"Failed to parse batch evaluation response: {e}")
+        logger.debug(f"Raw response: {response_text}")
         return []
 
 def tailor_resume(job_description, base_resume_content):
