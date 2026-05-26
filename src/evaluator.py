@@ -4,16 +4,14 @@ import requests
 import re
 import google.generativeai as genai
 from dotenv import load_dotenv
-from .logger import logger
+from src.logger import logger
 
 load_dotenv()
 
-# Settings
 USE_LOCAL_LLM = os.getenv("USE_LOCAL_LLM", "true").lower() == "true"
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434/api/generate")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5-coder:7b")
 
-# Gemini Config
 api_key = os.getenv("GEMINI_API_KEY")
 if api_key:
     genai.configure(api_key=api_key)
@@ -22,119 +20,99 @@ else:
     gemini_model = None
 
 def clean_json_response(text):
-    """Robustly extract JSON from a potentially messy LLM response"""
     if not text: return ""
-    # Look for [ { ... } ] or { ... }
     match = re.search(r'(\[.*\]|\{.*\})', text, re.DOTALL)
-    if match:
-        return match.group(1)
+    if match: return match.group(1)
     return text
 
-def call_local_llm(prompt, json_mode=False):
-    payload = {
-        "model": OLLAMA_MODEL,
-        "prompt": prompt,
-        "stream": False,
-    }
-    if json_mode:
-        payload["format"] = "json"
-        
+def call_llm(prompt, json_mode=False):
+    if USE_LOCAL_LLM:
+        payload = {"model": OLLAMA_MODEL, "prompt": prompt, "stream": False}
+        if json_mode: payload["format"] = "json"
+        try:
+            response = requests.post(OLLAMA_URL, json=payload, timeout=90)
+            response.raise_for_status()
+            return response.json().get("response", "")
+        except Exception as e:
+            logger.error(f"Ollama error: {e}")
+            return None
+    else:
+        if not gemini_model: 
+            logger.error("Gemini model not configured but USE_LOCAL_LLM is false.")
+            return None
+        try:
+            response = gemini_model.generate_content(prompt)
+            return response.text
+        except Exception as e:
+            logger.error(f"Gemini error: {e}")
+            return None
+
+def evaluate_match(job_description, base_resume_content):
+    prompt = f"""
+    Evaluate the match between the following job description and the candidate's resume.
+    
+    Job Description:
+    {job_description[:2000]}
+    
+    Resume:
+    {base_resume_content[:2000]}
+    
+    Return a JSON object with:
+    - 'score': A float between 0 and 1 representing the match quality.
+    - 'reason': A brief explanation for the score.
+    """
+    response_text = call_llm(prompt, json_mode=True)
     try:
-        response = requests.post(OLLAMA_URL, json=payload, timeout=90)
-        response.raise_for_status()
-        return response.json().get("response", "")
+        cleaned = clean_json_response(response_text)
+        return json.loads(cleaned)
     except Exception as e:
-        logger.error(f"Ollama error: {e}")
-        return None
+        logger.error(f"Failed to parse evaluation response: {e}")
+        return {"score": 0.0, "reason": "Error parsing LLM response"}
 
 def batch_evaluate_matches(jobs_data, base_resume_content):
-    if not jobs_data:
-        return []
-        
+    if not jobs_data: return []
+    
+    # If there are many jobs, we might still want to do individual or smaller batches
+    # For now, let's implement a simple batch prompt
     jobs_str = ""
-    for i, job in enumerate(jobs_data):
-        jobs_str += f"--- JOB (INTERNAL_ID: {job['id']}) ---\nTitle: {job['title']}\nDescription: {job['description'][:1000]}\n\n"
+    for job in jobs_data:
+        jobs_str += f"--- JOB (ID: {job['id']}) ---\nTitle: {job['title']}\nDescription: {job['description'][:1000]}\n\n"
 
     prompt = f"""
-    Evaluate the match between the following jobs and the candidate's resume.
+    Evaluate the match between the candidate resume and these jobs.
     
-    Candidate Resume:
-    {base_resume_content}
+    Resume:
+    {base_resume_content[:2000]}
     
-    Jobs to Evaluate:
+    Jobs:
     {jobs_str}
     
-    Return a valid JSON list of objects. Each object MUST have:
-    "id": MUST MATCH THE INTERNAL_ID PROVIDED ABOVE (as an integer).
-    "score": A float between 0 and 1.
-    "reason": A brief explanation.
-    
-    Example:
-    [
-      {{"id": 1, "score": 0.85, "reason": "Matches Kubernetes and AWS requirements."}}
-    ]
-    
-    Output ONLY the raw JSON list. No preamble or markdown.
+    Return a JSON list of objects, each containing:
+    - 'id': The JOB ID provided.
+    - 'score': A float between 0 and 1.
+    - 'reason': A brief explanation.
     """
     
-    response_text = ""
-    if USE_LOCAL_LLM:
-        logger.info(f"Using local LLM ({OLLAMA_MODEL}) for batch evaluation...")
-        response_text = call_local_llm(prompt, json_mode=True)
-    else:
-        logger.warning("!!! Hitting Gemini API (Paid) for batch evaluation !!!")
-        if not gemini_model: return []
-        response = gemini_model.generate_content(prompt)
-        response_text = response.text
-
-    if not response_text:
-        return []
+    response_text = call_llm(prompt, json_mode=True)
 
     try:
-        # Clean the text before parsing
-        cleaned_text = clean_json_response(response_text)
-        data = json.loads(cleaned_text)
-        # Ensure it's a list
+        cleaned = clean_json_response(response_text)
+        data = json.loads(cleaned)
         return data if isinstance(data, list) else [data]
     except Exception as e:
-        logger.error(f"JSON Parse error: {e}. Raw response: {response_text[:200]}")
+        logger.error(f"Failed to parse batch evaluation response: {e}")
         return []
-
-def evaluate_match(job_title, job_description, base_resume_content):
-    results = batch_evaluate_matches([{'id': 0, 'title': job_title, 'description': job_description}], base_resume_content)
-    if results:
-        return results[0].get("score", 0.0), results[0].get("reason", "")
-    return 0.0, "Evaluation failed"
 
 def tailor_resume(job_description, base_resume_content):
     prompt = f"""
-    Modify this resume to match the job description. Highlight Kubernetes, Terraform, and Python automation.
-    Adjust about 30% of content. Keep Markdown format.
+    Tailor the following resume to better match the job description. 
+    Maintain truthfulness but highlight relevant experience.
+    Return the tailored resume in Markdown format.
     
-    Job: {job_description[:1000]}
-    Resume: {base_resume_content}
+    Job Description:
+    {job_description[:2000]}
     
-    Return ONLY the modified Markdown. No preamble.
+    Resume:
+    {base_resume_content[:3000]}
     """
-    
-    if USE_LOCAL_LLM:
-        logger.info(f"Using local LLM ({OLLAMA_MODEL}) for tailoring...")
-        return call_local_llm(prompt) or base_resume_content
-    else:
-        logger.warning("!!! Hitting Gemini API (Paid) for tailoring !!!")
-        if not gemini_model: return base_resume_content
-        response = gemini_model.generate_content(prompt)
-        return response.text
-
-def answer_application_question(question, job_description, base_resume_content):
-    prompt = f"""
-    Answer this job application question based on the resume.
-    Question: {question}
-    Resume: {base_resume_content}
-    Return ONLY the answer text.
-    """
-    if USE_LOCAL_LLM:
-        return call_local_llm(prompt) or "N/A"
-    else:
-        if not gemini_model: return "N/A"
-        return gemini_model.generate_content(prompt).text.strip()
+    return call_llm(prompt) or base_resume_content

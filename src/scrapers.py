@@ -1,113 +1,58 @@
 import os
 from apify_client import ApifyClient
-from dotenv import load_dotenv
-from .logger import logger
-from .models import JobStatus
-from datetime import datetime
+from src.logger import logger
 
-load_dotenv()
-
-APIFY_API_TOKEN = os.getenv("APIFY_API_TOKEN")
-client = ApifyClient(APIFY_API_TOKEN) if APIFY_API_TOKEN else None
-
-def get_dataset_id(run):
-    if isinstance(run, dict):
-        return run.get("defaultDatasetId")
-    for attr in ["default_dataset_id", "defaultDatasetId", "default_dataset"]:
-        val = getattr(run, attr, None)
-        if val: return val
-    try:
-        return run["defaultDatasetId"]
-    except:
-        pass
-    return None
-
-def scrape_linkedin(keywords, locations, max_items=150):
-    if not client:
-        logger.error("APIFY_API_TOKEN not set")
+def fetch_all_jobs(keywords, locations, max_items=150):
+    """
+    Fetches job listings from LinkedIn using Apify's cheap_scraper/linkedin-job-scraper.
+    """
+    api_token = os.getenv("APIFY_API_TOKEN")
+    if not api_token:
+        logger.error("APIFY_API_TOKEN not found in environment variables.")
         return []
+
+    client = ApifyClient(api_token)
     
-    jobs = []
-    for keyword in keywords:
-        for location in locations:
-            logger.info(f"Scraping LinkedIn for {keyword} in {location}...")
-            run_input = {
-                "keyword": [keyword],
-                "location": location,
-                "maxItems": max_items,
-                "publishedAt": "r604800",
-                "saveOnlyUniqueItems": True
-            }
-            try:
-                run = client.actor("cheap_scraper/linkedin-job-scraper").call(run_input=run_input)
-                dataset_id = get_dataset_id(run)
-                if not dataset_id: continue
-
-                for item in client.dataset(dataset_id).iterate_items():
-                    # Validate item has minimum required data
-                    ext_id = item.get('id') or item.get('jobId')
-                    title = item.get('title') or item.get('jobTitle')
-                    if not ext_id or not title:
-                        continue # Skip invalid items
-
-                    jobs.append({
-                        "job_id_external": f"li_{ext_id}",
-                        "title": title,
-                        "company": item.get("companyName") or item.get("company"),
-                        "location": item.get("location"),
-                        "description": item.get("description") or item.get("jobDescription"),
-                        "url": item.get("url") or item.get("jobUrl"),
-                        "source": "linkedin",
-                        "salary": item.get("salary"),
-                        "posted_date": datetime.now()
-                    })
-            except Exception as e:
-                logger.error(f"Error scraping LinkedIn: {e}")
-    return jobs
-
-def scrape_dice(keywords, locations, max_items=20):
-    if not client:
-        logger.error("APIFY_API_TOKEN not set")
-        return []
-    
-    jobs = []
-    for keyword in keywords:
-        for location in locations:
-            logger.info(f"Scraping Dice for {keyword} in {location}...")
-            run_input = {
-                "keyword": keyword,
-                "location": location,
-                "results_wanted": max_items,
-                "posted_date": "7d"
-            }
-            try:
-                run = client.actor("shahidirfan/Dice-Job-Scraper").call(run_input=run_input)
-                dataset_id = get_dataset_id(run)
-                if not dataset_id: continue
-
-                for item in client.dataset(dataset_id).iterate_items():
-                    ext_id = item.get('jobId') or item.get('id')
-                    title = item.get('jobTitle') or item.get('title')
-                    if not ext_id or not title:
-                        continue
-
-                    jobs.append({
-                        "job_id_external": f"dice_{ext_id}",
-                        "title": title,
-                        "company": item.get("companyName") or item.get("company"),
-                        "location": item.get("location"),
-                        "description": item.get("description") or item.get("jobDescription"),
-                        "url": item.get("jobUrl") or item.get("url"),
-                        "source": "dice",
-                        "salary": item.get("salary"),
-                        "posted_date": datetime.now()
-                    })
-            except Exception as e:
-                logger.error(f"Error scraping Dice: {e}")
-    return jobs
-
-def fetch_all_jobs(keywords, locations):
     all_jobs = []
-    all_jobs.extend(scrape_linkedin(keywords, locations))
-    all_jobs.extend(scrape_dice(keywords, locations))
+    
+    # The actor supports multiple keywords, but we'll loop through locations 
+    # if there are multiple, as the actor typically handles one location string.
+    for location in locations:
+        run_input = {
+            "keyword": keywords,
+            "location": location,
+            "maxItems": max_items,
+            "publishedAt": "r604800", # Past week
+            "saveOnlyUniqueItems": True,
+            "enrichCompanyData": False # Faster
+        }
+
+        try:
+            logger.info(f"Running Apify LinkedIn scraper for keywords {keywords} in {location}...")
+            # Run the Actor and wait for it to finish
+            run = client.actor("cheap_scraper/linkedin-job-scraper").call(run_input=run_input)
+
+            # Fetch results from the run's dataset
+            for item in client.dataset(run["defaultDatasetId"]).iterate_items():
+                # Map Apify item to our Job model format
+                job_data = {
+                    "job_id_external": str(item.get("id", item.get("jobId"))),
+                    "title": item.get("title"),
+                    "company": item.get("companyName"),
+                    "location": item.get("location"),
+                    "url": item.get("url"),
+                    "description": item.get("description"),
+                    "source": "linkedin",
+                    "posted_at": item.get("postedAt")
+                }
+                
+                # Basic validation
+                if job_data["job_id_external"] and job_data["title"]:
+                    all_jobs.append(job_data)
+                    
+            logger.info(f"Fetched {len(all_jobs)} jobs from LinkedIn for {location}.")
+            
+        except Exception as e:
+            logger.error(f"Apify LinkedIn scraper failed for {location}: {e}")
+
     return all_jobs

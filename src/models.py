@@ -1,10 +1,11 @@
 from datetime import datetime
 from sqlalchemy import Column, Integer, String, Text, Float, DateTime, ForeignKey, Enum
-from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.orm import relationship
 import enum
 
-Base = declarative_base()
+class Base(DeclarativeBase):
+    pass
 
 class JobStatus(enum.Enum):
     NEW = "new"
@@ -23,13 +24,13 @@ class Job(Base):
     __tablename__ = "jobs"
     
     id = Column(Integer, primary_key=True)
-    job_id_external = Column(String(255), unique=True) # ID from LinkedIn/Dice
+    job_id_external = Column(String(255), unique=True)
     title = Column(String(255))
     company = Column(String(255))
     location = Column(String(255))
     description = Column(Text)
     url = Column(String(1024))
-    source = Column(String(50)) # linkedin, dice
+    source = Column(String(50))
     salary = Column(String(255))
     posted_date = Column(DateTime)
     
