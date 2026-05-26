@@ -15,6 +15,9 @@ engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 def init_db():
+    # Import models here to ensure they are registered with Base.metadata
+    from src.models import Job, RunLog
+    from src.memory import QuestionAnswer
     Base.metadata.create_all(bind=engine)
 
 def get_db():

@@ -1,10 +1,12 @@
 {
     "keywords": [
-        "Site Reliability Engineer"
+        "Site Reliability Engineer",
+        "Lead Site Reliability Engineer"
     ],
     "locations": [
-        "United States"
+        "United States",
+        "India"
     ],
-    "max_items_per_search": 5,
+    "max_items_per_search": 150,
     "match_threshold": 0.5
 }

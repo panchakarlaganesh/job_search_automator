@@ -25,9 +25,21 @@ def save_tailored_resume(content, job_id, output_dir="resumes/tailored"):
         pdf.set_font("Helvetica", size=10)
         lines = content.split("\n")
         for line in lines:
-            clean_line = line.encode('latin-1', 'replace').decode('latin-1')
-            if clean_line.strip() == "": pdf.ln(5)
-            else: pdf.multi_cell(190, 6, clean_line)
+            # Use 'replace' for non-latin1 characters to avoid FPDF errors
+            # Also handle potential empty lines more gracefully
+            try:
+                clean_line = line.encode('latin-1', 'replace').decode('latin-1')
+            except:
+                clean_line = "[Encoding Error]"
+            
+            if not clean_line.strip():
+                pdf.ln(5)
+            else:
+                # Use multi_cell for automatic wrapping
+                pdf.multi_cell(190, 6, clean_line)
+        
+        # Ensure the output directory is clean of half-written files
+        if os.path.exists(pdf_path): os.remove(pdf_path)
         pdf.output(pdf_path)
         return pdf_path
     except Exception as e:
