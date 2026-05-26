@@ -75,8 +75,8 @@ async def run_automation():
 
         jobs_to_process = db.query(Job).filter(Job.status == JobStatus.NEW).all()
         
-        # Batch evaluation (10 jobs at a time)
-        batch_size = 10
+        # Batch evaluation (5 jobs at a time)
+        batch_size = 5
         for i in range(0, len(jobs_to_process), batch_size):
             batch = jobs_to_process[i:i + batch_size]
             batch_data = [{'id': j.id, 'title': j.title, 'description': j.description} for j in batch]

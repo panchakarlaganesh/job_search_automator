@@ -87,10 +87,17 @@ def batch_evaluate_matches(jobs_data, base_resume_content):
     Jobs:
     {jobs_str}
     
-    Return a JSON list of objects, each containing:
-    - 'id': The JOB ID provided.
+    CRITICAL: Return ONLY a valid JSON list of objects. Do not include any other text, markdown blocks, or explanations.
+    Each object must have:
+    - 'id': The JOB ID provided (as a number).
     - 'score': A float between 0 and 1.
     - 'reason': A brief explanation.
+    
+    Example format:
+    [
+      {{"id": 1, "score": 0.8, "reason": "Matches core skills."}},
+      {{"id": 2, "score": 0.2, "reason": "Lack of required experience."}}
+    ]
     """
     
     response_text = call_llm(prompt, json_mode=True)
