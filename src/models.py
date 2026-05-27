@@ -9,16 +9,10 @@ class Base(DeclarativeBase):
 
 class JobStatus(enum.Enum):
     NEW = "new"
-    MATCHING = "matching"
-    MATCHED = "matched"
-    MATCH_FAILED = "match_failed"
-    TAILORING = "tailoring"
-    TAILORED = "tailored"
-    APPLYING = "applying"
+    REVIEW = "review"
     APPLIED = "applied"
     REJECTED = "rejected"
-    ON_HOLD = "on_hold"
-    MANUAL_INTERVENTION = "manual_intervention"
+    HELP = "help"
 
 class Job(Base):
     __tablename__ = "jobs"

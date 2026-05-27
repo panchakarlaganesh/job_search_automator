@@ -113,14 +113,22 @@ def batch_evaluate_matches(jobs_data, base_resume_content):
 
 def tailor_resume(job_description, base_resume_content):
     prompt = f"""
-    Tailor the following resume to better match the job description. 
-    Maintain truthfulness but highlight relevant experience.
-    Return the tailored resume in Markdown format.
+    You are an expert resume writer. Tailor the following resume to match the job description provided.
     
+    GUIDELINES:
+    1. Maintain 100% truthfulness. Do not invent experience.
+    2. Adjust the 'Summary' to highlight keywords from the job description.
+    3. Reorder or emphasize skills that are mentioned as 'Required' or 'Preferred'.
+    4. For 'Experience' bullet points, rephrase them to use impactful action verbs and quantify results if possible, focusing on aspects relevant to the job.
+    5. Maintain a professional, clean Markdown format.
+    6. Ensure the tailoring is significant (around 30% change in phrasing/emphasis).
+
     Job Description:
-    {job_description[:2000]}
+    {job_description[:3000]}
     
-    Resume:
-    {base_resume_content[:3000]}
+    Base Resume:
+    {base_resume_content[:4000]}
+    
+    Output ONLY the tailored resume in Markdown. Do not include any intro/outro text.
     """
     return call_llm(prompt) or base_resume_content

@@ -19,26 +19,44 @@ def save_tailored_resume(content, job_id, output_dir="resumes/tailored"):
     pdf_path = os.path.join(output_dir, f"{job_id}.pdf")
     try:
         with open(md_path, "w", encoding="utf-8") as f: f.write(content)
+        
         pdf = FPDF()
         pdf.set_auto_page_break(auto=True, margin=15)
         pdf.add_page()
-        pdf.set_font("Helvetica", size=10)
+        
         lines = content.split("\n")
         for line in lines:
-            # Use 'replace' for non-latin1 characters to avoid FPDF errors
-            # Also handle potential empty lines more gracefully
-            try:
-                clean_line = line.encode('latin-1', 'replace').decode('latin-1')
-            except:
-                clean_line = "[Encoding Error]"
-            
-            if not clean_line.strip():
-                pdf.ln(5)
+            line = line.strip()
+            if not line:
+                pdf.ln(4)
+                continue
+
+            # Basic Markdown Parsing for PDF
+            if line.startswith("# "):
+                pdf.set_font("Helvetica", 'B', 16)
+                clean_line = line[2:].encode('latin-1', 'replace').decode('latin-1')
+                pdf.cell(0, 10, clean_line, ln=True)
+            elif line.startswith("## "):
+                pdf.set_font("Helvetica", 'B', 14)
+                clean_line = line[3:].encode('latin-1', 'replace').decode('latin-1')
+                pdf.cell(0, 9, clean_line, ln=True)
+            elif line.startswith("### "):
+                pdf.set_font("Helvetica", 'B', 12)
+                clean_line = line[4:].encode('latin-1', 'replace').decode('latin-1')
+                pdf.cell(0, 8, clean_line, ln=True)
+            elif line.startswith("**") and line.endswith("**"):
+                pdf.set_font("Helvetica", 'B', 10)
+                clean_line = line.strip("*").encode('latin-1', 'replace').decode('latin-1')
+                pdf.multi_cell(0, 6, clean_line)
+            elif line.startswith("- "):
+                pdf.set_font("Helvetica", size=10)
+                clean_line = f"• {line[2:]}".encode('latin-1', 'replace').decode('latin-1')
+                pdf.multi_cell(0, 6, clean_line)
             else:
-                # Use multi_cell for automatic wrapping
-                pdf.multi_cell(190, 6, clean_line)
+                pdf.set_font("Helvetica", size=10)
+                clean_line = line.encode('latin-1', 'replace').decode('latin-1')
+                pdf.multi_cell(0, 6, clean_line)
         
-        # Ensure the output directory is clean of half-written files
         if os.path.exists(pdf_path): os.remove(pdf_path)
         pdf.output(pdf_path)
         return pdf_path

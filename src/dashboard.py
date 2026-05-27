@@ -22,12 +22,12 @@ def main():
         st.sidebar.header("Statistics")
         total_jobs = db.query(Job).count()
         applied_jobs = db.query(Job).filter(Job.status == JobStatus.APPLIED).count()
-        # Count both matched and tailored as matches for the sidebar
-        matching_jobs = db.query(Job).filter(Job.status.in_([JobStatus.MATCHED, JobStatus.TAILORED])).count()
+        # Review status is our main "Match" indicator now
+        matching_jobs = db.query(Job).filter(Job.status == JobStatus.REVIEW).count()
         
         st.sidebar.metric("Total Found", total_jobs)
         st.sidebar.metric("Applied", applied_jobs)
-        st.sidebar.metric("Matches", matching_jobs)
+        st.sidebar.metric("Ready for Review", matching_jobs)
 
         st.header("📋 Job Application Pipeline")
         
@@ -37,7 +37,11 @@ def main():
             col_f1, col_f2, col_f3 = st.columns(3)
             with col_f1:
                 status_list = [s.value for s in JobStatus] + ["all"]
-                default_index = status_list.index("tailored") if "tailored" in status_list else len(status_list) - 1
+                # Default to 'review' for the most actionable view
+                try:
+                    default_index = status_list.index("review")
+                except:
+                    default_index = len(status_list) - 1
                 status_filter = st.selectbox("Filter by Status", status_list, index=default_index)
             
             with col_f2:

@@ -59,6 +59,14 @@ async def run_automation():
                 elif "dice.com" in url:
                     raw_job["source"] = "dice"
 
+                # Region normalization
+                loc = raw_job.get("location", "").lower()
+                if any(x in loc for x in ["india", "hyderabad", "bengaluru", "bangalore", "pune", "mumbai"]):
+                    raw_job["location"] = "India"
+                elif any(x in loc for x in ["united states", "usa", "us", "remote"]):
+                    if "india" not in loc: # Avoid mismatch for 'Remote India'
+                        raw_job["location"] = "United States"
+                
                 # Check if exists
                 existing = db.query(Job).filter(Job.job_id_external == raw_job["job_id_external"]).first()
                 if not existing:
@@ -104,14 +112,13 @@ async def run_automation():
                     job.match_reason = res.get('reason', "")
                     
                     if job.match_score >= threshold:
-                        job.status = JobStatus.MATCHED
+                        job.status = JobStatus.REVIEW
                         logger.info(f"Match found for {job.title} ({job.match_score})! Tailoring resume...")
                         tailored_content = tailor_resume(job.description, base_resume_content)
                         pdf_path = save_tailored_resume(tailored_content, job.id)
                         job.tailored_resume_path = pdf_path
-                        job.status = JobStatus.TAILORED
                     else:
-                        job.status = JobStatus.MATCH_FAILED
+                        job.status = JobStatus.REJECTED
                 else:
                     logger.warning(f"No evaluation result for job {job.id}")
                 
@@ -119,11 +126,10 @@ async def run_automation():
 
         # 4. Auto-Apply (If enabled in .env)
         if os.getenv("AUTO_APPLY_ENABLED") == "true":
-            jobs_to_apply = db.query(Job).filter(Job.status == JobStatus.TAILORED).all()
+            jobs_to_apply = db.query(Job).filter(Job.status == JobStatus.REVIEW).all()
             for job in jobs_to_apply:
                 applier = get_applier(job.url)
                 if applier:
-                    job.status = JobStatus.APPLYING
                     db.commit()
                     success = await applier.apply(job, job.tailored_resume_path, base_resume_content)
                     if success:
@@ -131,11 +137,11 @@ async def run_automation():
                         run_log.jobs_applied += 1
                         notify_application(job.title, job.company, "Applied", job.url)
                     else:
-                        job.status = JobStatus.MANUAL_INTERVENTION
+                        job.status = JobStatus.HELP
                         notify_intervention(job.title, job.company, job.url)
                 else:
                     logger.info(f"No specific applier for {job.url}, marking for manual intervention.")
-                    job.status = JobStatus.MANUAL_INTERVENTION
+                    job.status = JobStatus.HELP
                     notify_intervention(job.title, job.company, job.url)
                 db.commit()
 
