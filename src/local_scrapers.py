@@ -89,49 +89,66 @@ async def scrape_dice_playwright(keywords, locations, max_items=10, days_back=3)
         
         for kw in keywords:
             for loc in locations:
+                # Direct search URL with pre-filled filters
                 url = f"https://www.dice.com/jobs?q={kw.replace(' ', '%20')}&location={loc.replace(' ', '%20')}&pageSize=20&language=en&postedDate={days_back}"
                 try:
                     logger.info(f"Navigating to Dice {loc}...")
                     await page.goto(url, wait_until="load", timeout=60000)
-                    await asyncio.sleep(5)
                     
-                    job_cards = await page.query_selector_all("d-job-card, .card, [id^='google-ad-content'], .search-card")
-                    logger.info(f"Found {len(job_cards)} job cards on Dice ({loc}).")
+                    # Human-like wait for dynamic content
+                    await asyncio.sleep(8)
+                    
+                    # Attempt to scroll to trigger lazy loading
+                    for _ in range(2):
+                        await page.mouse.wheel(0, 800)
+                        await asyncio.sleep(2)
+
+                    # Look for job results container or individual cards
+                    job_cards = await page.query_selector_all("d-job-card, [id^='google-ad-content'], .search-card, .card")
+                    logger.info(f"Found {len(job_cards)} potential items on Dice ({loc}).")
                     
                     if not job_cards:
-                        # Debug: Screenshot of Dice failure
-                        os.makedirs("logs", exist_ok=True)
-                        await page.screenshot(path=f"logs/dice_failed_{loc}.png")
+                        # Fallback: Check if we are stuck on a landing page and need to click search
+                        try:
+                            await page.click("#submitSearch-button", timeout=3000)
+                            await asyncio.sleep(5)
+                            job_cards = await page.query_selector_all("d-job-card, .card")
+                        except: pass
 
                     seen_urls = set()
                     for card in job_cards:
                         if len(jobs) >= max_items: break
                         
-                        # Primary selector for Dice titles
-                        title_elem = await card.query_selector("a.card-title-link, .title, h5, a[id^='job-title']")
-                        title = (await title_elem.inner_text()).strip() if title_elem else "Unknown Title"
-                        
-                        link_elem = await card.query_selector("a.card-title-link, a")
-                        job_url = await link_elem.get_attribute("href") if link_elem else ""
-                        
-                        if not job_url or job_url in seen_urls: continue
-                        seen_urls.add(job_url)
+                        try:
+                            # Dice uses complex shadow DOM or specific component tags
+                            title_elem = await card.query_selector("a.card-title-link, .title, h5")
+                            if not title_elem: continue
+                            title = (await title_elem.inner_text()).strip()
+                            
+                            link_elem = await card.query_selector("a.card-title-link, a")
+                            job_url = await link_elem.get_attribute("href") if link_elem else ""
+                            
+                            if not job_url or job_url in seen_urls: continue
+                            seen_urls.add(job_url)
 
-                        company_elem = await card.query_selector("[data-cy='card-company-name'], .company")
-                        company = (await company_elem.inner_text()).strip() if company_elem else "Unknown Company"
-                        
-                        jobs.append({
-                            "job_id_external": f"dice_{random.randint(100000, 999999)}",
-                            "title": title,
-                            "company": company,
-                            "location": loc,
-                            "url": job_url,
-                            "source": "dice",
-                            "description": f"Role at {company}",
-                            "posted_date": datetime.now()
-                        })
+                            company_elem = await card.query_selector("[data-cy='card-company-name'], .company, a[data-cy='company-name']")
+                            company = (await company_elem.inner_text()).strip() if company_elem else "Unknown Company"
+                            
+                            jobs.append({
+                                "job_id_external": f"dice_{random.randint(100000, 999999)}",
+                                "title": title,
+                                "company": company,
+                                "location": loc,
+                                "url": job_url if job_url.startswith("http") else f"https://www.dice.com{job_url}",
+                                "source": "dice",
+                                "description": f"Role at {company}",
+                                "posted_date": datetime.now()
+                            })
+                        except: continue
                 except Exception as e:
                     logger.error(f"Dice scraper failed for {loc}: {e}")
+                    os.makedirs("logs", exist_ok=True)
+                    await page.screenshot(path=f"logs/dice_error_{loc}.png")
                     
         await browser.close()
     return jobs
