@@ -120,8 +120,9 @@ def tailor_resume(job_description, base_resume_content):
     2. Adjust the 'Summary' to highlight keywords from the job description.
     3. Reorder or emphasize skills that are mentioned as 'Required' or 'Preferred'.
     4. For 'Experience' bullet points, rephrase them to use impactful action verbs and quantify results if possible, focusing on aspects relevant to the job.
-    5. Maintain a professional, clean Markdown format.
-    6. Ensure the tailoring is significant (around 30% change in phrasing/emphasis).
+    5. Maintain a professional, clean SINGLE-COLUMN Markdown format.
+    6. DO NOT use tables, columns, or side-by-side text.
+    7. Ensure the tailoring is significant (around 30% change in phrasing/emphasis).
 
     Job Description:
     {job_description[:3000]}

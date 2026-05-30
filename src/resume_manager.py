@@ -38,52 +38,48 @@ def save_tailored_resume(content, job_id, output_dir="resumes/tailored"):
         
         lines = content.split("\n")
         for line in lines:
-            line = line.strip()
+            # Collapse multiple spaces and remove tabs to prevent floating text
+            line = " ".join(line.split()).strip()
             
-            # Explicitly reset X position for every line to prevent horizontal drift/floating
+            # Explicitly reset X position for every line to prevent horizontal drift
             pdf.set_x(margin_left)
 
             if not line:
-                pdf.ln(4) # Standard line break
+                pdf.ln(5)
                 continue
 
             # 1. Handle Headers
             if line.startswith("# "):
-                # Main Name/Title
                 pdf.set_font("Helvetica", 'B', 16)
-                clean_text = line[2:].replace("**", "").strip()
-                pdf.multi_cell(content_width, 10, clean_text, align='L')
+                clean_text = line.replace("#", "").replace("**", "").strip()
+                pdf.multi_cell(0, 10, clean_text)
                 pdf.ln(2)
             elif line.startswith("## "):
-                # Secondary Headers
                 pdf.set_font("Helvetica", 'B', 14)
-                clean_text = line[3:].replace("**", "").strip()
-                pdf.multi_cell(content_width, 9, clean_text, align='L')
+                clean_text = line.replace("#", "").replace("**", "").strip()
+                pdf.multi_cell(0, 9, clean_text)
                 pdf.ln(1)
             elif line.startswith("### "):
-                # Section Headers (Skills, Experience, etc.)
                 pdf.set_font("Helvetica", 'B', 12)
-                clean_text = line[4:].replace("**", "").strip()
-                pdf.multi_cell(content_width, 8, clean_text, align='L')
+                clean_text = line.replace("#", "").replace("**", "").strip()
+                pdf.multi_cell(0, 8, clean_text)
             else:
                 # 2. Handle Body Text & Bullets
+                # Determine if the whole line or parts of it are bold
                 is_bold = "**" in line
                 clean_text = line.replace("**", "").strip()
                 
+                # Render bullet points
                 if clean_text.startswith("- "):
-                    # Professional bullet point rendering
                     pdf.set_font("Helvetica", 'B' if is_bold else '', 10)
-                    # We use a simple dash as a bullet for maximum compatibility
-                    pdf.multi_cell(content_width, 6, f"- {clean_text[2:]}", align='L')
+                    pdf.multi_cell(0, 6, f"  - {clean_text[2:]}")
                 else:
-                    # Standard paragraph or line
                     pdf.set_font("Helvetica", 'B' if is_bold else '', 10)
                     try:
-                        # Character encoding safety
                         safe_text = clean_text.encode('latin-1', 'replace').decode('latin-1')
-                        pdf.multi_cell(content_width, 6, safe_text, align='L')
+                        pdf.multi_cell(0, 6, safe_text)
                     except Exception as e:
-                        logger.error(f"Render error on line: {e}")
+                        logger.error(f"Render error: {e}")
 
         # Clean and save the final PDF
         if os.path.exists(pdf_path):
