@@ -2,7 +2,7 @@ import os
 from apify_client import ApifyClient
 from src.logger import logger
 
-def fetch_all_jobs(keywords, locations, max_items=150):
+def fetch_all_jobs(keywords, locations, max_items=150, days_back=3):
     """
     Fetches job listings from LinkedIn using Apify's cheap_scraper/linkedin-job-scraper.
     """
@@ -12,21 +12,23 @@ def fetch_all_jobs(keywords, locations, max_items=150):
         return []
 
     client = ApifyClient(api_token)
-
     all_jobs = []
 
-    # The actor supports multiple keywords, but we'll loop through locations
-    # if there are multiple, as the actor typically handles one location string.
+    # Map days_back to Apify's publishedAt format (e.g., r86400 for 1 day)
+    seconds_back = days_back * 86400
+    published_at = f"r{seconds_back}"
+    
+    # Convert keywords list to comma-separated string for Apify
+    keyword_str = ", ".join(keywords) if isinstance(keywords, list) else str(keywords)
+
     for location in locations:
-        # Convert keywords list to comma-separated string for Apify
-        keyword_str = ", ".join(keywords) if isinstance(keywords, list) else str(keywords)
         run_input = {
             "keyword": keyword_str,
             "location": location,
             "maxItems": max_items,
-            "publishedAt": "r604800", # Past week
+            "publishedAt": published_at,
             "saveOnlyUniqueItems": True,
-            "enrichCompanyData": False # Faster
+            "enrichCompanyData": False
         }
 
         try:
@@ -37,8 +39,9 @@ def fetch_all_jobs(keywords, locations, max_items=150):
             # Fetch results from the run's dataset
             for item in client.dataset(run.defaultDatasetId).iterate_items():
                 # Map Apify item to our Job model format
+                job_id = str(item.get("id", item.get("jobId", "")))
                 job_data = {
-                    "job_id_external": str(item.get("id", item.get("jobId"))),
+                    "job_id_external": job_id if job_id else f"li_{os.urandom(4).hex()}",
                     "title": item.get("title"),
                     "company": item.get("companyName"),
                     "location": item.get("location"),
@@ -49,7 +52,7 @@ def fetch_all_jobs(keywords, locations, max_items=150):
                 }
 
                 # Basic validation
-                if job_data["job_id_external"] and job_data["title"]:
+                if job_data["title"]:
                     all_jobs.append(job_data)
 
             logger.info(f"Fetched {len(all_jobs)} jobs from LinkedIn for {location}.")

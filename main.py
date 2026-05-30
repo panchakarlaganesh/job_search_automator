@@ -32,18 +32,30 @@ async def run_automation():
         locations = config.get("locations", [])
         threshold = config.get("match_threshold", 0.6)
         max_items = config.get("max_items_per_search", 150)
+        days_back = config.get("days_since_posted", 3)
 
         # 2. Fetch Jobs
-        logger.info("Starting job scrape...")
+        # Smart Search: Automatically set days_back based on last run
+        last_run = db.query(RunLog).filter(RunLog.status == "success").order_by(RunLog.end_time.desc()).first()
+        if last_run and last_run.end_time:
+            delta = datetime.utcnow() - last_run.end_time
+            # Default to at least 1 day, up to 7 days
+            smart_days = max(1, min(7, delta.days + 1))
+            logger.info(f"Smart Search: It has been {delta.days} days since last run. Setting search window to {smart_days} days.")
+            days_back = smart_days
+        else:
+            logger.info(f"No previous successful run found. Using config default: {days_back} days.")
+
+        logger.info(f"Starting job scrape for last {days_back} days...")
         try:
-            raw_jobs = fetch_all_jobs(keywords, locations, max_items)
+            raw_jobs = fetch_all_jobs(keywords, locations, max_items, days_back)
         except Exception as e:
             logger.warning(f"Apify scrape failed, falling back to local scrapers: {e}")
             raw_jobs = []
 
         if not raw_jobs:
-            logger.info("Fetching jobs using local Playwright scrapers...")
-            raw_jobs = await fetch_local_jobs_async(keywords, locations)
+            logger.info(f"Fetching jobs using local Playwright scrapers (last {days_back} days)...")
+            raw_jobs = await fetch_local_jobs_async(keywords, locations, days_back)
         
         run_log.jobs_found = len(raw_jobs)
         

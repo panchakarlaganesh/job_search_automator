@@ -2,7 +2,10 @@ import streamlit as st
 import pandas as pd
 import sys
 import os
+import json
+from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 
 # Add project root to path for absolute imports
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -18,52 +21,81 @@ def main():
     
     db = SessionLocal()
     try:
-        # Sidebar Stats
-        st.sidebar.header("Statistics")
-        total_jobs = db.query(Job).count()
-        applied_jobs = db.query(Job).filter(Job.status == JobStatus.APPLIED).count()
-        # Review status is our main "Match" indicator now
-        matching_jobs = db.query(Job).filter(Job.status == JobStatus.REVIEW).count()
+        # --- 1. SETTINGS & FILTERS ---
         
-        st.sidebar.metric("Total Found", total_jobs)
-        st.sidebar.metric("Applied", applied_jobs)
-        st.sidebar.metric("Ready for Review", matching_jobs)
+        # Sidebar: Search Window (Last N Days)
+        st.sidebar.header("Search Settings")
+        config_path = "config/search.json"
+        if os.path.exists(config_path):
+            with open(config_path, "r") as f:
+                config = json.load(f)
+            
+            days_back = st.sidebar.slider("Search window (last N days)", 1, 30, config.get("days_since_posted", 3))
+            if days_back != config.get("days_since_posted"):
+                config["days_since_posted"] = days_back
+                with open(config_path, "w") as f:
+                    json.dump(config, f, indent=4)
+                st.sidebar.success(f"Config updated to {days_back} days!")
+        else:
+            days_back = 7
+            st.sidebar.warning("Config file not found.")
 
-        st.header("📋 Job Application Pipeline")
+        # Top Filters (Jobs Tab)
+        status_list = [s.value for s in JobStatus] + ["all"]
+        try:
+            default_index = status_list.index("review")
+        except:
+            default_index = len(status_list) - 1
+
+        # We'll use columns for the filters at the top
+        f_col1, f_col2, f_col3 = st.columns(3)
+        with f_col1:
+            status_filter = st.selectbox("Filter by Status", status_list, index=default_index)
+        with f_col2:
+            regions = ["all"] + sorted([r[0] for r in db.query(Job.location).distinct().all() if r[0]])
+            region_filter = st.selectbox("Filter by Region", regions)
+        with f_col3:
+            sources = ["all"] + sorted([s[0] for s in db.query(Job.source).distinct().all() if s[0]])
+            source_filter = st.selectbox("Filter by Source", sources)
+
+        # --- 2. DYNAMIC QUERY BUILDING ---
+        
+        # Apply Date Filter
+        since_date = datetime.now() - timedelta(days=days_back)
+        
+        # Base query for the list
+        query = db.query(Job).filter(Job.created_at >= since_date)
+        
+        if region_filter != "all":
+            query = query.filter(Job.location == region_filter)
+        if source_filter != "all":
+            query = query.filter(Job.source == source_filter)
+        
+        # Queries for Sidebar Stats (respecting date, region, source)
+        total_found = query.count()
+        applied_count = query.filter(Job.status == JobStatus.APPLIED).count()
+        ready_count = query.filter(Job.status == JobStatus.REVIEW).count()
+
+        # Update Sidebar Metrics
+        st.sidebar.header("Statistics (Filtered)")
+        st.sidebar.metric("Total Found", total_found)
+        st.sidebar.metric("Applied", applied_count)
+        st.sidebar.metric("Ready for Review", ready_count)
+
+        # --- 3. UI TABS ---
         
         tab1, tab2 = st.tabs(["Jobs", "🧠 Learning Mode (Q&A)"])
         
         with tab1:
-            col_f1, col_f2, col_f3 = st.columns(3)
-            with col_f1:
-                status_list = [s.value for s in JobStatus] + ["all"]
-                # Default to 'review' for the most actionable view
-                try:
-                    default_index = status_list.index("review")
-                except:
-                    default_index = len(status_list) - 1
-                status_filter = st.selectbox("Filter by Status", status_list, index=default_index)
-            
-            with col_f2:
-                regions = ["all"] + sorted([r[0] for r in db.query(Job.location).distinct().all() if r[0]])
-                region_filter = st.selectbox("Filter by Region", regions)
-                
-            with col_f3:
-                sources = ["all"] + sorted([s[0] for s in db.query(Job.source).distinct().all() if s[0]])
-                source_filter = st.selectbox("Filter by Source", sources)
-            
-            query = db.query(Job)
+            # Final filtering for the list by status
+            list_query = query
             if status_filter != "all":
-                query = query.filter(Job.status == JobStatus(status_filter))
-            if region_filter != "all":
-                query = query.filter(Job.location == region_filter)
-            if source_filter != "all":
-                query = query.filter(Job.source == source_filter)
+                list_query = list_query.filter(Job.status == JobStatus(status_filter))
             
-            jobs = query.order_by(Job.created_at.desc()).all()
+            jobs = list_query.order_by(Job.created_at.desc()).all()
             
             if not jobs:
-                st.info("No jobs found for this filter.")
+                st.info(f"No jobs found matching these filters within the last {days_back} days.")
             
             for job in jobs:
                 with st.expander(f"{job.title} @ {job.company} ({job.status.value})"):
@@ -79,14 +111,13 @@ def main():
                         st.write(f"[Link to Job]({job.url})")
                         if job.tailored_resume_path and os.path.exists(job.tailored_resume_path):
                             with open(job.tailored_resume_path, "rb") as f:
-                                btn = st.download_button(
+                                st.download_button(
                                     label="📥 Download Tailored Resume (PDF)",
                                     data=f,
                                     file_name=f"Resume_{job.company.replace(' ', '_')}.pdf",
                                     mime="application/pdf",
                                     key=f"dl_{job.id}"
                                 )
-                            st.info(f"Path: {job.tailored_resume_path}")
                     with col2:
                         new_status = st.selectbox("Change Status", [s.value for s in JobStatus], 
                                                 index=[s.value for s in JobStatus].index(job.status.value),
