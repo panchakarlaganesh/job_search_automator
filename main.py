@@ -13,6 +13,7 @@ from src.resume_manager import get_base_resumes, read_resume, save_tailored_resu
 from src.applier import get_applier
 from src.notifications import notify_application, notify_intervention
 from src.logger import logger
+from playwright.async_api import async_playwright
 
 load_dotenv()
 
