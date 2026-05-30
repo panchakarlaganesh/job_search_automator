@@ -48,7 +48,7 @@ def main():
             default_index = len(status_list) - 1
 
         # We'll use columns for the filters at the top
-        f_col1, f_col2, f_col3 = st.columns(3)
+        f_col1, f_col2, f_col3, f_col4 = st.columns(4)
         with f_col1:
             status_filter = st.selectbox("Filter by Status", status_list, index=default_index)
         with f_col2:
@@ -57,6 +57,9 @@ def main():
         with f_col3:
             sources = ["all"] + sorted([s[0] for s in db.query(Job.source).distinct().all() if s[0]])
             source_filter = st.selectbox("Filter by Source", sources)
+        with f_col4:
+            seniorities = ["all"] + sorted([s[0] for s in db.query(Job.seniority).distinct().all() if s[0]])
+            seniority_filter = st.selectbox("Filter by Seniority", seniorities)
 
         # --- 2. DYNAMIC QUERY BUILDING ---
         
@@ -70,6 +73,8 @@ def main():
             query = query.filter(Job.location == region_filter)
         if source_filter != "all":
             query = query.filter(Job.source == source_filter)
+        if seniority_filter != "all":
+            query = query.filter(Job.seniority == seniority_filter)
         
         # Queries for Sidebar Stats (respecting date, region, source)
         total_found = query.count()
@@ -102,12 +107,30 @@ def main():
                     col1, col2 = st.columns([3, 1])
                     with col1:
                         st.write(f"**Source:** {job.source} | **Location:** {job.location}")
+                        if job.salary and job.salary != "Not specified":
+                            st.success(f"💰 **Salary:** {job.salary}")
+                        if job.seniority and job.seniority != "Unknown":
+                            st.warning(f"🏷️ **Seniority:** {job.seniority}")
+                        
+                        if job.tech_stack:
+                            try:
+                                tools = json.loads(job.tech_stack)
+                                if tools:
+                                    st.write("**Tech Stack:** " + ", ".join([f"`{t}`" for t in tools]))
+                            except: pass
+
                         posted_str = job.posted_date.strftime('%Y-%m-%d') if job.posted_date else "Unknown"
                         st.write(f"**Posted Date:** {posted_str}")
                         st.write(f"**Match Score:** {job.match_score if job.match_score else 'N/A'}")
 
                         if job.match_reason:
                             st.info(f"**Reason:** {job.match_reason}")
+                        
+                        # Recruiter Outreach Draft
+                        if st.button("📧 Draft Outreach Email", key=f"rec_{job.id}"):
+                            draft = f"Subject: Application for {job.title} - [Your Name]\n\nHi [Recruiter Name],\n\nI recently saw the {job.title} position at {job.company} and was very impressed by your work in {json.loads(job.tech_stack)[0] if job.tech_stack else 'the field'}.\n\nMy background matches your requirements for a {job.seniority} role. I've attached my tailored resume for your review.\n\nBest,\n[Your Name]"
+                            st.text_area("Copy this draft:", draft, height=200)
+
                         st.write(f"[Link to Job]({job.url})")
                         if job.tailored_resume_path and os.path.exists(job.tailored_resume_path):
                             with open(job.tailored_resume_path, "rb") as f:

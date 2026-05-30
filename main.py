@@ -94,12 +94,75 @@ async def run_automation():
         db.commit()
         logger.info(f"Scrape complete. Found {len(raw_jobs)} jobs, {new_jobs_count} were newly added.")
 
-        # 3. Match & Tailor (TEMPORARILY DISABLED FOR TESTING)
-        logger.info("AI Matching & Tailoring is temporarily disabled for testing.")
-        """
+        # 3. Intelligence & Matching
+        from src.verifier import verify_job_active, get_ats_type
+        from src.local_scrapers import fetch_full_description, get_stealth_browser, get_stealth_context
+
         base_resumes = get_base_resumes()
-        # ... rest of matching logic ...
-        """
+        if not base_resumes:
+            logger.warning("No base resumes found in resumes/ directory.")
+            return
+        
+        base_resume_path = os.path.join("resumes", base_resumes[0])
+        base_resume_content = read_resume(base_resume_path)
+
+        jobs_to_process = db.query(Job).filter(Job.status == JobStatus.NEW).all()
+        if not jobs_to_process:
+            logger.info("No new jobs to process.")
+            return
+
+        logger.info(f"Processing intelligence and matching for {len(jobs_to_process)} jobs...")
+        
+        async with async_playwright() as p:
+            browser = await get_stealth_browser(p)
+            context = await get_stealth_context(browser)
+            page = await context.new_page()
+
+            # Batch evaluate for matching and intelligence extraction
+            batch_size = 5
+            for i in range(0, len(jobs_to_process), batch_size):
+                batch = jobs_to_process[i:i + batch_size]
+                
+                # 3a. Deep Scrape & Verify Active
+                batch_data = []
+                for job in batch:
+                    # 1. Verify Active / Detect ATS
+                    job.ats_type = get_ats_type(job.url)
+                    # 2. Deep Scrape Description if current is too short
+                    if not job.description or len(job.description) < 500:
+                        # Selectors for different sources
+                        sel_map = {"indeed": "#jobDescriptionText", "dice": "#jobDescription", "linkedin": ".description__text", "glassdoor": "[data-test='jobDescriptionText']", "ziprecruiter": ".job_description"}
+                        full_desc = await fetch_full_description(page, job.url, sel_map.get(job.source, "body"))
+                        if full_desc: job.description = full_desc
+                    
+                    batch_data.append({'id': job.id, 'title': job.title, 'description': job.description})
+
+                # 3b. AI Matching & Intelligence
+                results = batch_evaluate_matches(batch_data, base_resume_content)
+                results_map = {r['id']: r for r in results if 'id' in r}
+                
+                for job in batch:
+                    res = results_map.get(job.id)
+                    if res:
+                        job.match_score = res.get('score', 0.0)
+                        job.match_reason = res.get('reason', "")
+                        job.seniority = res.get('seniority', "Unknown")
+                        job.tech_stack = json.dumps(res.get('tech_stack', []))
+                        job.salary = res.get('salary_estimate', "Not specified")
+                        
+                        if job.match_score >= threshold:
+                            job.status = JobStatus.REVIEW
+                            logger.info(f"Match found: {job.title} ({job.match_score}). Tailoring resume...")
+                            tailored_content = tailor_resume(job.description, base_resume_content)
+                            job.tailored_resume_path = save_tailored_resume(tailored_content, job.id)
+                        else:
+                            job.status = JobStatus.REJECTED
+                    else:
+                        logger.warning(f"AI skipped job {job.id}")
+                    
+                    db.commit()
+            
+            await browser.close()
 
         # 4. Auto-Apply (If enabled in .env)
         if os.getenv("AUTO_APPLY_ENABLED") == "true":

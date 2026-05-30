@@ -28,6 +28,12 @@ class Job(Base):
     salary = Column(String(255))
     posted_date = Column(DateTime)
     
+    # Intelligence Features
+    seniority = Column(String(50))
+    tech_stack = Column(Text) # JSON string of tools
+    ats_type = Column(String(50)) # greenhouse, lever, etc.
+    is_active = Column(Integer, default=1)
+    
     match_score = Column(Float)
     match_reason = Column(Text)
     status = Column(Enum(JobStatus), default=JobStatus.NEW)
