@@ -94,47 +94,12 @@ async def run_automation():
         db.commit()
         logger.info(f"Scrape complete. Found {len(raw_jobs)} jobs, {new_jobs_count} were newly added.")
 
-        # 3. Match & Tailor
+        # 3. Match & Tailor (TEMPORARILY DISABLED FOR TESTING)
+        logger.info("AI Matching & Tailoring is temporarily disabled for testing.")
+        """
         base_resumes = get_base_resumes()
-        if not base_resumes:
-            logger.warning("No base resumes found in resumes/ directory.")
-            return
-        
-        base_resume_path = os.path.join("resumes", base_resumes[0])
-        base_resume_content = read_resume(base_resume_path)
-
-        jobs_to_process = db.query(Job).filter(Job.status == JobStatus.NEW).all()
-        
-        # Batch evaluation (5 jobs at a time)
-        batch_size = 5
-        for i in range(0, len(jobs_to_process), batch_size):
-            batch = jobs_to_process[i:i + batch_size]
-            batch_data = [{'id': j.id, 'title': j.title, 'description': j.description} for j in batch]
-            
-            logger.info(f"Batch evaluating {len(batch)} jobs...")
-            results = batch_evaluate_matches(batch_data, base_resume_content)
-            
-            # Map results back to jobs
-            results_map = {r['id']: r for r in results if 'id' in r}
-            
-            for job in batch:
-                res = results_map.get(job.id)
-                if res:
-                    job.match_score = res.get('score', 0.0)
-                    job.match_reason = res.get('reason', "")
-                    
-                    if job.match_score >= threshold:
-                        job.status = JobStatus.REVIEW
-                        logger.info(f"Match found for {job.title} ({job.match_score})! Tailoring resume...")
-                        tailored_content = tailor_resume(job.description, base_resume_content)
-                        pdf_path = save_tailored_resume(tailored_content, job.id)
-                        job.tailored_resume_path = pdf_path
-                    else:
-                        job.status = JobStatus.REJECTED
-                else:
-                    logger.warning(f"No evaluation result for job {job.id}")
-                
-                db.commit()
+        # ... rest of matching logic ...
+        """
 
         # 4. Auto-Apply (If enabled in .env)
         if os.getenv("AUTO_APPLY_ENABLED") == "true":
