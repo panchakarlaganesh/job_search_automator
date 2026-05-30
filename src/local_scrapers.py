@@ -34,34 +34,36 @@ async def scrape_indeed_playwright(keywords, locations, max_items=10, days_back=
                         await page.click("button.icl-CloseButton", timeout=3000)
                     except: pass
 
-                    job_cards = await page.query_selector_all(".job_seen_beacon, .result, div.cardOutline")
+                    # Enhanced Indeed selectors including modern React-based ones
+                    job_cards = await page.query_selector_all(".job_seen_beacon, li.css-5lfssm, .result, div.cardOutline")
                     logger.info(f"Found {len(job_cards)} job cards on Indeed ({loc}).")
                     
                     if not job_cards:
                         os.makedirs("logs", exist_ok=True)
                         await page.screenshot(path=f"logs/blocked_{loc}.png")
-                        if "Blocked" in await page.title():
-                            logger.error(f"Indeed blocked the request for {loc}.")
+                        if "Blocked" in await page.title() or "Security" in await page.title():
+                            logger.error(f"Indeed blocked or security check for {loc}.")
                             continue
 
                     seen_urls = set()
                     for card in job_cards[:max_items * 2]:
                         if len(jobs) >= max_items: break
                         
-                        title_elem = await card.query_selector("h2.jobTitle span, a.jcs-JobTitle, .jobTitle")
+                        # Try broader title selectors
+                        title_elem = await card.query_selector("h2.jobTitle span, [data-testid='jobTitle'] span, .jobTitle")
                         title = (await title_elem.inner_text()).strip() if title_elem else "Unknown Title"
                         
-                        company_elem = await card.query_selector("[data-testid='company-name'], .companyName, .provider")
+                        company_elem = await card.query_selector("[data-testid='company-name'], .companyName, .provider, .company_location [data-testid='company-name']")
                         company = (await company_elem.inner_text()).strip() if company_elem else "Unknown Company"
                         
-                        link_elem = await card.query_selector("h2.jobTitle a, a.jcs-JobTitle")
+                        link_elem = await card.query_selector("h2.jobTitle a, a[data-jk], a.jcs-JobTitle")
                         job_url_rel = await link_elem.get_attribute("href") if link_elem else ""
                         job_url = f"https://{domain}{job_url_rel}" if job_url_rel and not job_url_rel.startswith("http") else job_url_rel
                         
-                        if job_url in seen_urls: continue
+                        if not job_url or job_url in seen_urls: continue
                         seen_urls.add(job_url)
 
-                        snippet_elem = await card.query_selector(".job-snippet, .summary")
+                        snippet_elem = await card.query_selector(".job-snippet, .summary, .job-snippet-list")
                         desc = (await snippet_elem.inner_text()).strip() if snippet_elem else f"Role at {company}"
                         
                         jobs.append({
