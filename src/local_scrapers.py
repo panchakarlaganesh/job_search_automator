@@ -95,14 +95,20 @@ async def scrape_dice_playwright(keywords, locations, max_items=10, days_back=3)
                     await page.goto(url, wait_until="load", timeout=60000)
                     await asyncio.sleep(5)
                     
-                    job_cards = await page.query_selector_all("d-job-card, .card")
+                    job_cards = await page.query_selector_all("d-job-card, .card, [id^='google-ad-content'], .search-card")
                     logger.info(f"Found {len(job_cards)} job cards on Dice ({loc}).")
                     
+                    if not job_cards:
+                        # Debug: Screenshot of Dice failure
+                        os.makedirs("logs", exist_ok=True)
+                        await page.screenshot(path=f"logs/dice_failed_{loc}.png")
+
                     seen_urls = set()
                     for card in job_cards:
                         if len(jobs) >= max_items: break
                         
-                        title_elem = await card.query_selector("a.card-title-link, .title")
+                        # Primary selector for Dice titles
+                        title_elem = await card.query_selector("a.card-title-link, .title, h5, a[id^='job-title']")
                         title = (await title_elem.inner_text()).strip() if title_elem else "Unknown Title"
                         
                         link_elem = await card.query_selector("a.card-title-link, a")
