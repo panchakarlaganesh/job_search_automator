@@ -103,35 +103,37 @@ async def scrape_dice_playwright(keywords, locations, max_items=10, days_back=3)
                         await page.mouse.wheel(0, 800)
                         await asyncio.sleep(2)
 
-                    # Look for job results container or individual cards
-                    job_cards = await page.query_selector_all("d-job-card, [id^='google-ad-content'], .search-card, .card")
+                    # Modern Dice selectors based on updated UI
+                    job_cards = await page.query_selector_all("[data-testid='job-card'], .card, .search-card, [id^='google-ad-content']")
                     logger.info(f"Found {len(job_cards)} potential items on Dice ({loc}).")
                     
                     if not job_cards:
-                        # Fallback: Check if we are stuck on a landing page and need to click search
-                        try:
-                            await page.click("#submitSearch-button", timeout=3000)
-                            await asyncio.sleep(5)
-                            job_cards = await page.query_selector_all("d-job-card, .card")
-                        except: pass
+                        # Fallback: Search by link patterns if card selectors fail
+                        job_cards = await page.query_selector_all("a[href*='/job-detail/']")
+                        logger.info(f"Fallback search found {len(job_cards)} detail links.")
 
                     seen_urls = set()
                     for card in job_cards:
                         if len(jobs) >= max_items: break
                         
                         try:
-                            # Dice uses complex shadow DOM or specific component tags
-                            title_elem = await card.query_selector("a.card-title-link, .title, h5")
-                            if not title_elem: continue
+                            # Primary title selector
+                            title_elem = await card.query_selector("[data-testid='job-title-link'], a[id^='job-title'], .title, h5")
+                            if not title_elem:
+                                # If the card itself is the link
+                                tag_name = await page.evaluate("(node) => node.tagName", card)
+                                if tag_name == "A": title_elem = card
+                                else: continue
+
                             title = (await title_elem.inner_text()).strip()
                             
-                            link_elem = await card.query_selector("a.card-title-link, a")
-                            job_url = await link_elem.get_attribute("href") if link_elem else ""
-                            
+                            # Link extraction
+                            job_url = await title_elem.get_attribute("href")
                             if not job_url or job_url in seen_urls: continue
                             seen_urls.add(job_url)
 
-                            company_elem = await card.query_selector("[data-cy='card-company-name'], .company, a[data-cy='company-name']")
+                            # Company selector
+                            company_elem = await card.query_selector("[data-testid='company-name'], a[data-cy='company-name'], .company")
                             company = (await company_elem.inner_text()).strip() if company_elem else "Unknown Company"
                             
                             jobs.append({
