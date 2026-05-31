@@ -196,8 +196,9 @@ async def run_automation():
         db.commit()
         db.close()
         
-        # 5. Auto-Commit to Git
-        auto_commit()
+        # 5. Auto-Commit to Git (only if not in CI)
+        if not os.getenv("GITHUB_ACTIONS"):
+            auto_commit()
 
 def auto_commit():
     try:

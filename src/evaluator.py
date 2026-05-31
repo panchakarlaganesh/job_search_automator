@@ -98,14 +98,14 @@ def batch_evaluate_matches(jobs_data, base_resume_content):
 
     Example format:
     [
-      {
+      {{
         "id": 1, 
         "score": 0.8, 
         "reason": "Matches core skills.", 
         "seniority": "Senior", 
         "tech_stack": ["AWS", "Kubernetes", "Python"], 
         "salary_estimate": "$150k - $200k"
-      }
+      }}
     ]
 
     """
