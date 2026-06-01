@@ -20,23 +20,32 @@ def notify_intervention(job_title, company, url):
 
 def notify_new_jobs(jobs_list):
     """
-    Sends a summary of newly found jobs.
+    Sends a summary of newly found jobs, splitting into multiple messages if needed.
     """
     if not jobs_list:
         return
         
     count = len(jobs_list)
-    message = f"🔍 **Found {count} New Jobs**\n\n"
+    header = f"🔍 **Found {count} New Jobs**\n\n"
     
-    # Send first 10 jobs in detail, then a summary
-    for job in jobs_list[:15]:
-        message += f"• {job['title']} @ {job['company']}\n  {job['url']}\n\n"
+    current_message = header
+    messages_sent = 0
+    
+    for i, job in enumerate(jobs_list):
+        job_entry = f"{i+1}. **{job['title']}**\n🏢 {job['company']}\n🔗 {job['url']}\n\n"
         
-    if count > 15:
-        message += f"... and {count - 15} more jobs found."
-        
-    _send_telegram(message)
-    _send_discord(message)
+        # Telegram limit is 4096. We'll use 3500 to be safe with markdown and headers.
+        if len(current_message) + len(job_entry) > 3500:
+            _send_telegram(current_message)
+            _send_discord(current_message)
+            current_message = "" # Reset for next part
+            messages_sent += 1
+            
+        current_message += job_entry
+
+    if current_message:
+        _send_telegram(current_message)
+        _send_discord(current_message)
 
 def _send_telegram(message):
     token = os.getenv("TELEGRAM_BOT_TOKEN")
