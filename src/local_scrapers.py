@@ -2,7 +2,6 @@ import asyncio
 import random
 import os
 from playwright.async_api import async_playwright
-from playwright_stealth import stealth
 from src.logger import logger
 from datetime import datetime
 
@@ -28,7 +27,20 @@ async def get_stealth_context(browser):
     return context
 
 async def apply_stealth(page):
-    await stealth(page)
+    try:
+        from playwright_stealth import stealth as stealth_func
+        # Check if it's the function or the module
+        if hasattr(stealth_func, 'stealth_async'):
+            await stealth_func.stealth_async(page)
+        elif hasattr(stealth_func, 'stealth'):
+            # If stealth_func is a module, call the stealth function inside it
+            res = stealth_func.stealth(page)
+            if asyncio.iscoroutine(res): await res
+        elif callable(stealth_func):
+            res = stealth_func(page)
+            if asyncio.iscoroutine(res): await res
+    except Exception as e:
+        logger.warning(f"Stealth application failed: {e}")
 
 async def human_scroll(page):
     for _ in range(random.randint(1, 3)):
