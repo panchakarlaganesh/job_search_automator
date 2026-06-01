@@ -1,9 +1,9 @@
 import asyncio
 import random
-import os
 from playwright.async_api import async_playwright
 from src.logger import logger
 from datetime import datetime
+from src.job_utils import normalize_job_url, stable_job_id
 
 # --- Browser Utilities ---
 
@@ -85,9 +85,11 @@ async def scrape_indeed(keywords, locations, max_items, days_back):
                             title = (await title_el.inner_text()).strip()
                             company = (await company_el.inner_text()).strip() if company_el else "Unknown"
                             href = await link_el.get_attribute("href")
-                            job_url = f"https://{domain}{href}" if href and not href.startswith("http") else href
+                            job_url = normalize_job_url(href, f"https://{domain}")
+                            if not job_url:
+                                continue
                             jobs.append({
-                                "job_id_external": f"ind_{href.split('jk=')[-1][:16]}" if "jk=" in href else f"ind_{os.urandom(4).hex()}",
+                                "job_id_external": stable_job_id("indeed", job_url, title, company),
                                 "title": title, "company": company, "location": loc, "url": job_url,
                                 "source": "indeed", "description": f"Indeed: {title} @ {company}", "posted_date": datetime.now()
                             })
@@ -117,9 +119,11 @@ async def scrape_dice(keywords, locations, max_items, days_back):
                             title = (await title_el.inner_text()).strip()
                             company = (await company_el.inner_text()).strip() if company_el else "Unknown"
                             href = await title_el.get_attribute("href")
-                            job_url = href if href.startswith("http") else f"https://www.dice.com{href}"
+                            job_url = normalize_job_url(href, "https://www.dice.com")
+                            if not job_url:
+                                continue
                             jobs.append({
-                                "job_id_external": f"dice_{os.urandom(4).hex()}",
+                                "job_id_external": stable_job_id("dice", job_url, title, company),
                                 "title": title, "company": company, "location": loc, "url": job_url,
                                 "source": "dice", "description": f"Dice: {title} @ {company}", "posted_date": datetime.now()
                             })
@@ -149,9 +153,12 @@ async def scrape_linkedin(keywords, locations, max_items, days_back):
                         link_el = await card.query_selector("a.base-card__full-link, a")
                         if title_el and link_el:
                             title = (await title_el.inner_text()).strip()
-                            job_url = (await link_el.get_attribute("href")).split('?')[0]
+                            href = await link_el.get_attribute("href")
+                            job_url = normalize_job_url(href, "https://www.linkedin.com")
+                            if not job_url:
+                                continue
                             jobs.append({
-                                "job_id_external": f"li_{os.urandom(4).hex()}",
+                                "job_id_external": stable_job_id("linkedin", job_url, title, "LinkedIn"),
                                 "title": title, "company": "LinkedIn", "location": loc, "url": job_url,
                                 "source": "linkedin", "description": f"LinkedIn: {title}", "posted_date": datetime.now()
                             })
@@ -178,9 +185,12 @@ async def scrape_ziprecruiter(keywords, locations, max_items, days_back):
                         link_el = await card.query_selector("a.job_link, a")
                         if title_el and link_el:
                             title = (await title_el.inner_text()).strip()
-                            job_url = await link_el.get_attribute("href")
+                            href = await link_el.get_attribute("href")
+                            job_url = normalize_job_url(href, "https://www.ziprecruiter.com")
+                            if not job_url:
+                                continue
                             jobs.append({
-                                "job_id_external": f"zr_{os.urandom(4).hex()}",
+                                "job_id_external": stable_job_id("ziprecruiter", job_url, title, "ZipRecruiter"),
                                 "title": title, "company": "ZipRecruiter", "location": loc, "url": job_url,
                                 "source": "ziprecruiter", "description": f"ZipRecruiter: {title}", "posted_date": datetime.now()
                             })
@@ -208,9 +218,11 @@ async def scrape_glassdoor(keywords, locations, max_items, days_back):
                         if title_el:
                             title = (await title_el.inner_text()).strip()
                             href = await title_el.get_attribute("href")
-                            job_url = f"https://www.glassdoor.com{href}" if not href.startswith("http") else href
+                            job_url = normalize_job_url(href, "https://www.glassdoor.com")
+                            if not job_url:
+                                continue
                             jobs.append({
-                                "job_id_external": f"gd_{os.urandom(4).hex()}",
+                                "job_id_external": stable_job_id("glassdoor", job_url, title, "Glassdoor"),
                                 "title": title, "company": "Glassdoor", "location": loc, "url": job_url,
                                 "source": "glassdoor", "description": f"Glassdoor: {title}", "posted_date": datetime.now()
                             })

@@ -104,7 +104,7 @@ def auto_commit():
         # Check if there are changes
         status = subprocess.check_output(["git", "status", "--porcelain"])
         if status:
-            subprocess.run(["git", "add", "data/jobs.db", "resumes/tailored/", "logs/"])
+            subprocess.run(["git", "add", "data/jobs.db", "resumes/tailored/"])
             subprocess.run(["git", "commit", "-m", f"Auto-run completed: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"])
             logger.info("Committed successfully.")
         else:
