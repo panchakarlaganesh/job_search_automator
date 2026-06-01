@@ -2,7 +2,7 @@ name: Scheduled Job Search
 
 on:
   schedule:
-    - cron: '0 23 * * *'  # Runs daily at 11:00 PM UTC (4:00 PM PDT)
+    - cron: '0 22 * * *'  # Runs daily at 10:00 PM UTC (3:00 PM PDT)
   workflow_dispatch:      # Allows manual trigger
 
 jobs:

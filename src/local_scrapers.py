@@ -220,16 +220,16 @@ async def scrape_glassdoor(keywords, locations, max_items, days_back):
 
 # --- Main Entry Point (Parallel) ---
 
-async def fetch_local_jobs_async(keywords, locations, days_back=3):
+async def fetch_local_jobs_async(keywords, locations, days_back=3, max_items=150):
     """Runs all scrapers in parallel with isolated browser sessions."""
     logger.info("Starting Parallel Multi-Board Search...")
     
     tasks = [
-        scrape_indeed(keywords, locations, 10, days_back),
-        scrape_dice(keywords, locations, 10, days_back),
-        scrape_linkedin(keywords, locations, 10, days_back),
-        scrape_ziprecruiter(keywords, locations, 10, days_back),
-        scrape_glassdoor(keywords, locations, 10, days_back)
+        scrape_indeed(keywords, locations, max_items // 5, days_back),
+        scrape_dice(keywords, locations, max_items // 5, days_back),
+        scrape_linkedin(keywords, locations, max_items // 5, days_back),
+        scrape_ziprecruiter(keywords, locations, max_items // 5, days_back),
+        scrape_glassdoor(keywords, locations, max_items // 5, days_back)
     ]
     
     results = await asyncio.gather(*tasks, return_exceptions=True)

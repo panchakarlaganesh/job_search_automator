@@ -49,7 +49,7 @@ async def run_automation():
         
         # We'll use local scrapers primarily for this test phase
         try:
-            raw_jobs = await fetch_local_jobs_async(keywords, locations, days_back)
+            raw_jobs = await fetch_local_jobs_async(keywords, locations, days_back, max_items)
         except Exception as e:
             logger.error(f"Scraper failed: {e}")
             raw_jobs = []
