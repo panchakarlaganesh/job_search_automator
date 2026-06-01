@@ -18,6 +18,26 @@ def notify_intervention(job_title, company, url):
     _send_telegram(message)
     _send_discord(message)
 
+def notify_new_jobs(jobs_list):
+    """
+    Sends a summary of newly found jobs.
+    """
+    if not jobs_list:
+        return
+        
+    count = len(jobs_list)
+    message = f"🔍 **Found {count} New Jobs**\n\n"
+    
+    # Send first 10 jobs in detail, then a summary
+    for job in jobs_list[:15]:
+        message += f"• {job['title']} @ {job['company']}\n  {job['url']}\n\n"
+        
+    if count > 15:
+        message += f"... and {count - 15} more jobs found."
+        
+    _send_telegram(message)
+    _send_discord(message)
+
 def _send_telegram(message):
     token = os.getenv("TELEGRAM_BOT_TOKEN")
     chat_id = os.getenv("TELEGRAM_CHAT_ID")
