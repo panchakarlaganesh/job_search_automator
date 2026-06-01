@@ -6,9 +6,9 @@ def fetch_all_jobs(keywords, locations, max_items=150, days_back=3):
     """
     Fetches job listings from LinkedIn using Apify's cheap_scraper/linkedin-job-scraper.
     """
-    api_token = os.getenv("APIFY_API_TOKEN")
+    api_token = os.getenv("APIFY_API_TOKEN") or os.getenv("APIFY_TOKEN")
     if not api_token:
-        logger.error("APIFY_API_TOKEN not found in environment variables.")
+        logger.error("APIFY_API_TOKEN or APIFY_TOKEN not found in environment variables.")
         return []
 
     client = ApifyClient(api_token)

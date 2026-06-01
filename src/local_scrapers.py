@@ -2,6 +2,7 @@ import asyncio
 import random
 import os
 from playwright.async_api import async_playwright
+from playwright_stealth import stealth_async
 from src.logger import logger
 from datetime import datetime
 
@@ -11,20 +12,23 @@ async def get_stealth_browser(p):
     return await p.chromium.launch(headless=True, args=[
         "--disable-blink-features=AutomationControlled",
         "--no-sandbox",
-        "--disable-setuid-sandbox"
+        "--disable-setuid-sandbox",
+        "--disable-infobars",
+        "--window-position=0,0",
+        "--ignore-certifcate-errors",
+        "--ignore-certifcate-errors-spki-list",
+        "--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
     ])
 
 async def get_stealth_context(browser):
-    user_agents = [
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
-        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-    ]
-    return await browser.new_context(
-        user_agent=random.choice(user_agents),
-        viewport={'width': random.randint(1280, 1920), 'height': random.randint(720, 1080)},
-        extra_http_headers={"Accept-Language": "en-US,en;q=0.9"}
+    context = await browser.new_context(
+        user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        viewport={'width': 1920, 'height': 1080}
     )
+    return context
+
+async def apply_stealth(page):
+    await stealth_async(page)
 
 async def human_scroll(page):
     for _ in range(random.randint(1, 3)):
@@ -51,6 +55,7 @@ async def scrape_indeed(keywords, locations, max_items, days_back):
         browser = await get_stealth_browser(p)
         context = await get_stealth_context(browser)
         page = await context.new_page()
+        await apply_stealth(page)
         for kw in keywords:
             for loc in locations:
                 domain = "in.indeed.com" if loc.lower() == "india" else "www.indeed.com"
@@ -84,6 +89,7 @@ async def scrape_dice(keywords, locations, max_items, days_back):
         browser = await get_stealth_browser(p)
         context = await get_stealth_context(browser)
         page = await context.new_page()
+        await apply_stealth(page)
         for kw in keywords:
             for loc in locations:
                 url = f"https://www.dice.com/jobs?q={kw.replace(' ', '%20')}&location={loc.replace(' ', '%20')}&pageSize=20&postedDate={days_back}"
@@ -115,6 +121,7 @@ async def scrape_linkedin(keywords, locations, max_items, days_back):
         browser = await get_stealth_browser(p)
         context = await get_stealth_context(browser)
         page = await context.new_page()
+        await apply_stealth(page)
         time_map = {1: "r86400", 2: "r172800", 3: "r259200", 7: "r604800"}
         f_tpr = time_map.get(days_back, "r604800")
         for kw in keywords:
@@ -146,6 +153,7 @@ async def scrape_ziprecruiter(keywords, locations, max_items, days_back):
         browser = await get_stealth_browser(p)
         context = await get_stealth_context(browser)
         page = await context.new_page()
+        await apply_stealth(page)
         for kw in keywords:
             for loc in locations:
                 url = f"https://www.ziprecruiter.com/jobs-search?search={kw.replace(' ', '+')}&location={loc.replace(' ', '+')}&days={days_back}"
@@ -174,6 +182,7 @@ async def scrape_glassdoor(keywords, locations, max_items, days_back):
         browser = await get_stealth_browser(p)
         context = await get_stealth_context(browser)
         page = await context.new_page()
+        await apply_stealth(page)
         for kw in keywords:
             for loc in locations:
                 url = f"https://www.glassdoor.com/Job/jobs.htm?sc.keyword={kw.replace(' ', '+')}&locT=C&locP={loc.replace(' ', '+')}&fromAge={days_back}"
