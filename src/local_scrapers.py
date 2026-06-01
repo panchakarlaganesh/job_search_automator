@@ -2,7 +2,7 @@ import asyncio
 import random
 import os
 from playwright.async_api import async_playwright
-from playwright_stealth import stealth_async
+from playwright_stealth import stealth
 from src.logger import logger
 from datetime import datetime
 
@@ -28,7 +28,7 @@ async def get_stealth_context(browser):
     return context
 
 async def apply_stealth(page):
-    await stealth_async(page)
+    await stealth(page)
 
 async def human_scroll(page):
     for _ in range(random.randint(1, 3)):
