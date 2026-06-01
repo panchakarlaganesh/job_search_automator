@@ -3,6 +3,7 @@ playwright
 playwright-stealth
 streamlit
 google-generativeai
+google-genai
 python-dotenv
 pandas
 markdown2

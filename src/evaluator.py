@@ -2,9 +2,12 @@ import os
 import json
 import requests
 import re
-import google.generativeai as genai
+import warnings
 from dotenv import load_dotenv
 from src.logger import logger
+
+# Suppress deprecation warnings from older SDKs if still present in dependencies
+warnings.filterwarnings("ignore", category=FutureWarning, module="google.generativeai")
 
 load_dotenv()
 
@@ -12,15 +15,27 @@ USE_LOCAL_LLM = os.getenv("USE_LOCAL_LLM", "true").lower() == "true"
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434/api/generate")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5-coder:7b")
 
-api_key = os.getenv("GEMINI_API_KEY")
-if api_key:
-    genai.configure(api_key=api_key)
-    gemini_model = genai.GenerativeModel(os.getenv("GEMINI_MODEL", "gemini-1.5-flash"))
-else:
-    gemini_model = None
+# Try to use the new google-genai SDK if available, fallback to google-generativeai
+try:
+    from google import genai
+    client = genai.Client(api_key=os.getenv("GEMINI_API_KEY")) if os.getenv("GEMINI_API_KEY") else None
+    GEMINI_MODEL_ID = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
+    HAS_NEW_SDK = True
+except ImportError:
+    import google.generativeai as old_genai
+    api_key = os.getenv("GEMINI_API_KEY")
+    if api_key:
+        old_genai.configure(api_key=api_key)
+        gemini_model = old_genai.GenerativeModel(os.getenv("GEMINI_MODEL", "gemini-1.5-flash"))
+    else:
+        gemini_model = None
+    HAS_NEW_SDK = False
 
 def clean_json_response(text):
     if not text: return ""
+    # Remove markdown code blocks if present
+    text = re.sub(r'```json\s*', '', text)
+    text = re.sub(r'\s*```', '', text)
     match = re.search(r'(\[.*\]|\{.*\})', text, re.DOTALL)
     if match: return match.group(1)
     return text
@@ -30,19 +45,28 @@ def call_llm(prompt, json_mode=False):
         payload = {"model": OLLAMA_MODEL, "prompt": prompt, "stream": False}
         if json_mode: payload["format"] = "json"
         try:
-            response = requests.post(OLLAMA_URL, json=payload, timeout=90)
+            response = requests.post(OLLAMA_URL, json=payload, timeout=120)
             response.raise_for_status()
             return response.json().get("response", "")
         except Exception as e:
             logger.error(f"Ollama error: {e}")
             return None
     else:
-        if not gemini_model: 
-            logger.error("Gemini model not configured but USE_LOCAL_LLM is false.")
+        api_key = os.getenv("GEMINI_API_KEY")
+        if not api_key:
+            logger.error("GEMINI_API_KEY not found. Please set it in your environment or GitHub Secrets.")
             return None
+
         try:
-            response = gemini_model.generate_content(prompt)
-            return response.text
+            if HAS_NEW_SDK:
+                response = client.models.generate_content(
+                    model=GEMINI_MODEL_ID,
+                    contents=prompt
+                )
+                return response.text
+            else:
+                response = gemini_model.generate_content(prompt)
+                return response.text
         except Exception as e:
             logger.error(f"Gemini error: {e}")
             return None
