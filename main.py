@@ -74,10 +74,22 @@ async def run_automation():
         db.commit()
         logger.info(f"Scrape complete. Found {len(raw_jobs)} jobs, {len(newly_added_jobs)} were newly added.")
 
-        # 3. Direct Notifications (AI Paused as requested)
+        # 3. Direct Notifications (Filter by last run time for strict incrementality)
         if newly_added_jobs:
-            logger.info(f"Sending Telegram summary for {len(newly_added_jobs)} new jobs...")
-            notify_new_jobs(newly_added_jobs)
+            if last_run and last_run.start_time:
+                # Filter out jobs that might have been posted before the last run but only discovered now
+                # This ensures you don't get re-notified for jobs from the 7-day initial window
+                strictly_new_jobs = [
+                    j for j in newly_added_jobs 
+                    if j.get("posted_date") and j["posted_date"] > last_run.start_time
+                ]
+                # If posted_date is missing or precision is low, we fall back to all newly added
+                if not strictly_new_jobs: strictly_new_jobs = newly_added_jobs
+            else:
+                strictly_new_jobs = newly_added_jobs
+
+            logger.info(f"Sending Telegram summary for {len(strictly_new_jobs)} new jobs...")
+            notify_new_jobs(strictly_new_jobs)
         else:
             logger.info("No new jobs to notify.")
 
