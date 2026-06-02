@@ -61,42 +61,32 @@ class ResumePDF(FPDF):
                 self._render_text_with_formatting(line)
 
     def _render_text_with_formatting(self, text, is_bullet=False):
-        """Very basic parser for **bold** text in a line."""
-        parts = re.split(r'(\*\*.*?\*\*)', text)
+        """Renders text with basic markdown formatting support."""
+        # Simplified: Remove bolding tags for now to ensure stable rendering
+        clean_text = text.replace('**', '').strip()
         
-        if is_bullet:
-            self.set_x(25) # Indent for bullet
-            self.cell(5, 6, chr(149)) # Bullet character
-        
-        for part in parts:
-            if part.startswith('**') and part.endswith('**'):
-                self.set_font('Helvetica', 'B', 10)
-                clean_part = part[2:-2]
-            else:
-                self.set_font('Helvetica', '', 10)
-                clean_part = part
-            
-            # Use latin-1 for FPDF compatibility
-            try:
-                safe_text = clean_part.encode('latin-1', 'replace').decode('latin-1')
-            except:
-                safe_text = clean_part
-                
-            # We use write instead of multi_cell for inline formatting, 
-            # but this doesn't handle wrapping well. 
-            # For a resume, we'll stick to multi_cell per line for simplicity 
-            # unless a word-by-word bolding engine is needed.
-            # Here we just output the whole line with basic safety.
-        
-        # Simplified: Render the whole line, removing markdown bold tags for now
-        # until a more complex layout engine is added.
-        final_text = text.replace('**', '')
+        # Use latin-1 for FPDF compatibility
         try:
-            safe_final = final_text.encode('latin-1', 'replace').decode('latin-1')
+            safe_text = clean_text.encode('latin-1', 'replace').decode('latin-1')
         except:
-            safe_final = final_text
+            safe_text = clean_text
+
+        if is_bullet:
+            # Set a temporary left margin for the bullet and its text
+            orig_margin = self.l_margin
+            self.set_left_margin(orig_margin + 10)
             
-        self.multi_cell(0, 6, safe_final)
+            # Draw the bullet symbol at the original margin position
+            self.set_x(orig_margin + 5)
+            self.write(6, chr(149) + " ")
+            
+            # Render the multi-line text (it will now wrap to the new margin)
+            self.multi_cell(0, 6, safe_text)
+            
+            # Reset the margin
+            self.set_left_margin(orig_margin)
+        else:
+            self.multi_cell(0, 6, safe_text)
 
 def save_tailored_resume(job_id, content, output_dir="resumes/tailored"):
     """Saves tailored resume as MD and PDF."""
