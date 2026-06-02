@@ -115,38 +115,76 @@ def main():
                         st.write(f"**Match Score:** {job.match_score if job.match_score else 'N/A'}")
 
                         if job.match_reason:
-                            st.info(f"**Reason:** {job.match_reason}")
+                            st.info(f"**AI Match Analysis:** {job.match_reason}")
 
+                        # --- RESUME PREVIEW & DOWNLOAD ---
+                        st.divider()
+                        st.subheader("Tailored Resume")
+                        if job.tailored_resume_path:
+                            # Try to find the Markdown version for preview
+                            md_path = job.tailored_resume_path.replace(".pdf", ".md")
+                            if os.path.exists(md_path):
+                                with open(md_path, "r", encoding="utf-8") as f:
+                                    with st.expander("📄 View Resume Content (Markdown)"):
+                                        st.markdown(f.read())
+                            
+                            if os.path.exists(job.tailored_resume_path):
+                                with open(job.tailored_resume_path, "rb") as f:
+                                    st.download_button(
+                                        label="💾 Download Tailored Resume (PDF)",
+                                        data=f,
+                                        file_name=f"Resume_{job.company.replace(' ', '_')}.pdf",
+                                        mime="application/pdf",
+                                        key=f"dl_{job.id}",
+                                    )
+                        else:
+                            st.warning("No tailored resume generated yet for this job.")
+                        
+                        if st.button("✨ Regenerate Tailored Resume", key=f"gen_{job.id}"):
+                            with st.spinner("AI is tailoring your resume..."):
+                                from src.evaluator import tailor_resume
+                                from src.resume_manager import get_base_resumes, read_resume, save_tailored_resume
+                                
+                                base_resumes = get_base_resumes()
+                                if base_resumes:
+                                    base_path = os.path.join("resumes", base_resumes[0])
+                                    base_content = read_resume(base_path)
+                                    
+                                    # Call the new tailoring logic
+                                    new_content = tailor_resume(job.description, base_content)
+                                    pdf_path = save_tailored_resume(job.id, new_content)
+                                    
+                                    if pdf_path:
+                                        job.tailored_resume_path = pdf_path
+                                        db.commit()
+                                        st.success("Resume updated successfully!")
+                                        st.rerun()
+                                    else:
+                                        st.error("Failed to save tailored resume.")
+                                else:
+                                    st.error("No base resume found in resumes/ folder.")
+
+                        # --- OUTREACH EMAIL ---
                         if st.button("Draft Outreach Email", key=f"rec_{job.id}"):
-                            primary_skill = "the field"
+                            primary_skill = "cloud infrastructure"
                             if job.tech_stack:
                                 try:
                                     tools = json.loads(job.tech_stack)
-                                    if tools:
-                                        primary_skill = tools[0]
-                                except (TypeError, ValueError):
-                                    pass
+                                    if tools: primary_skill = tools[0]
+                                except: pass
+                            
                             draft = (
-                                f"Subject: Application for {job.title} - [Your Name]\n\n"
-                                f"Hi [Recruiter Name],\n\n"
-                                f"I recently saw the {job.title} position at {job.company} and was very impressed "
-                                f"by your work in {primary_skill}.\n\n"
-                                f"My background matches your requirements for a {job.seniority} role. "
-                                f"I've attached my tailored resume for your review.\n\n"
-                                f"Best,\n[Your Name]"
+                                f"Subject: {job.title} - Application Inquiry\n\n"
+                                f"Hi Hiring Team,\n\n"
+                                f"I am writing to express my interest in the **{job.title}** position at **{job.company}**.\n\n"
+                                f"With my extensive experience in **{primary_skill}** and my focus on high-reliability systems, I believe I am a strong fit for your team. "
+                                f"I have specifically tailored my resume to highlight my experience with the technologies mentioned in your job description.\n\n"
+                                f"Would you be open to a brief conversation about how my background aligns with your goals for this role?\n\n"
+                                f"Best regards,\n[Your Name]\n[Your Phone]\n[LinkedIn Profile]"
                             )
-                            st.text_area("Copy this draft:", draft, height=200)
+                            st.text_area("Personalized Outreach Draft:", draft, height=300)
 
-                        st.write(f"[Link to Job]({job.url})")
-                        if job.tailored_resume_path and os.path.exists(job.tailored_resume_path):
-                            with open(job.tailored_resume_path, "rb") as f:
-                                st.download_button(
-                                    label="Download Tailored Resume (PDF)",
-                                    data=f,
-                                    file_name=f"Resume_{job.company.replace(' ', '_')}.pdf",
-                                    mime="application/pdf",
-                                    key=f"dl_{job.id}",
-                                )
+                        st.write(f"[Link to Job Board]({job.url})")
                     with col2:
                         new_status = st.selectbox(
                             "Change Status",
