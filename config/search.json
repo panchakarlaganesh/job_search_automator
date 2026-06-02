@@ -20,5 +20,5 @@
     ],
     "max_items_per_search": 150,
     "match_threshold": 0.5,
-    "days_since_posted": 7
+    "days_since_posted": 5
 }

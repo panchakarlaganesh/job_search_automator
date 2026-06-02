@@ -65,11 +65,26 @@ class ResumePDF(FPDF):
         # Simplified: Remove bolding tags for now to ensure stable rendering
         clean_text = text.replace('**', '').strip()
         
-        # Use latin-1 for FPDF compatibility
+        # Replace common unicode characters that cause latin-1 issues
+        replacements = {
+            '\u2013': '-', # en dash
+            '\u2014': '-', # em dash
+            '\u2018': "'", # left single quote
+            '\u2019': "'", # right single quote
+            '\u201c': '"', # left double quote
+            '\u201d': '"', # right double quote
+            '\u2022': '*', # bullet point
+            '\u2026': '...' # ellipsis
+        }
+        for char, replacement in replacements.items():
+            clean_text = clean_text.replace(char, replacement)
+        
+        # Use latin-1 for FPDF compatibility, with aggressive fallback
         try:
             safe_text = clean_text.encode('latin-1', 'replace').decode('latin-1')
         except:
-            safe_text = clean_text
+            # Final fallback: strip all non-ascii
+            safe_text = "".join(i for i in clean_text if ord(i) < 128)
 
         if is_bullet:
             # Set a temporary left margin for the bullet and its text
