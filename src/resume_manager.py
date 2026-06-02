@@ -20,106 +20,79 @@ class ResumePDF(FPDF):
         self.set_auto_page_break(auto=True, margin=15)
         self.set_left_margin(20)
         self.set_right_margin(20)
+        self.set_font('Helvetica', '', 10)
 
-    def header(self):
-        pass # No default header
-
+    def header(self): pass
     def footer(self):
         self.set_y(-15)
         self.set_font('Helvetica', 'I', 8)
         self.cell(0, 10, f'Page {self.page_no()}', 0, 0, 'C')
+
+    def safe_text(self, text):
+        """Clean and encode text for latin-1 PDF compatibility."""
+        if not text: return ""
+        replacements = {
+            '\u2013': '-', '\u2014': '-', '\u2018': "'", '\u2019': "'",
+            '\u201c': '"', '\u201d': '"', '\u2022': '*', '\u2026': '...'
+        }
+        for char, replacement in replacements.items():
+            text = text.replace(char, replacement)
+        try:
+            return text.encode('latin-1', 'replace').decode('latin-1')
+        except:
+            return "".join(i for i in text if ord(i) < 128)
 
     def render_markdown(self, content):
         lines = content.split('\n')
         for line in lines:
             line = line.strip()
             if not line:
-                self.ln(4)
+                self.ln(5)
                 continue
+
+            # Ensure we are at the left margin before every element
+            self.set_x(self.l_margin)
 
             # Headers
             if line.startswith('# '):
-                self.set_font('Helvetica', 'B', 16)
-                self.multi_cell(0, 10, line[2:].strip())
+                self.set_font("Helvetica", 'B', 16)
+                self.multi_cell(0, 10, self.safe_text(line[2:]))
                 self.ln(2)
             elif line.startswith('## '):
                 self.ln(2)
-                self.set_font('Helvetica', 'B', 14)
-                self.multi_cell(0, 9, line[3:].strip())
+                self.set_font("Helvetica", 'B', 14)
+                self.multi_cell(0, 9, self.safe_text(line[3:]))
                 self.ln(1)
             elif line.startswith('### '):
-                self.set_font('Helvetica', 'B', 12)
-                self.multi_cell(0, 8, line[4:].strip())
+                self.set_font("Helvetica", 'B', 12)
+                self.multi_cell(0, 8, self.safe_text(line[4:]))
             # Bullet points
             elif line.startswith('- ') or line.startswith('* '):
-                self.set_font('Helvetica', '', 10)
-                text = line[2:].strip()
-                # Handle bolding within bullets
-                self._render_text_with_formatting(text, is_bullet=True)
+                self.set_font("Helvetica", '', 10)
+                # Drawing bullet manually
+                self.set_x(self.l_margin + 5)
+                self.write(6, chr(149))
+                # Indented text
+                self.set_x(self.l_margin + 10)
+                # Calculate remaining width to avoid horizontal space error
+                eff_width = self.w - self.r_margin - (self.l_margin + 10)
+                self.multi_cell(eff_width, 6, self.safe_text(line[2:]))
             else:
-                self.set_font('Helvetica', '', 10)
-                self._render_text_with_formatting(line)
-
-    def _render_text_with_formatting(self, text, is_bullet=False):
-        """Renders text with basic markdown formatting support."""
-        # Simplified: Remove bolding tags for now to ensure stable rendering
-        clean_text = text.replace('**', '').strip()
-        
-        # Replace common unicode characters that cause latin-1 issues
-        replacements = {
-            '\u2013': '-', # en dash
-            '\u2014': '-', # em dash
-            '\u2018': "'", # left single quote
-            '\u2019': "'", # right single quote
-            '\u201c': '"', # left double quote
-            '\u201d': '"', # right double quote
-            '\u2022': '*', # bullet point
-            '\u2026': '...' # ellipsis
-        }
-        for char, replacement in replacements.items():
-            clean_text = clean_text.replace(char, replacement)
-        
-        # Use latin-1 for FPDF compatibility, with aggressive fallback
-        try:
-            safe_text = clean_text.encode('latin-1', 'replace').decode('latin-1')
-        except:
-            # Final fallback: strip all non-ascii
-            safe_text = "".join(i for i in clean_text if ord(i) < 128)
-
-        if is_bullet:
-            # Set a temporary left margin for the bullet and its text
-            orig_margin = self.l_margin
-            self.set_left_margin(orig_margin + 10)
-            
-            # Draw the bullet symbol at the original margin position
-            self.set_x(orig_margin + 5)
-            self.write(6, chr(149) + " ")
-            
-            # Render the multi-line text (it will now wrap to the new margin)
-            self.multi_cell(0, 6, safe_text)
-            
-            # Reset the margin
-            self.set_left_margin(orig_margin)
-        else:
-            self.multi_cell(0, 6, safe_text)
+                self.set_font("Helvetica", '', 10)
+                # Strip internal markdown bolding for stability
+                text = line.replace('**', '')
+                self.multi_cell(0, 6, self.safe_text(text))
 
 def save_tailored_resume(job_id, content, output_dir="resumes/tailored"):
-    """Saves tailored resume as MD and PDF."""
     if not os.path.exists(output_dir): os.makedirs(output_dir)
     md_path = os.path.join(output_dir, f"{job_id}.md")
     pdf_path = os.path.join(output_dir, f"{job_id}.pdf")
-    
     try:
-        # Save MD
-        with open(md_path, "w", encoding="utf-8") as f:
-            f.write(content)
-            
-        # Save PDF
+        with open(md_path, "w", encoding="utf-8") as f: f.write(content)
         pdf = ResumePDF()
         pdf.add_page()
         pdf.render_markdown(content)
         pdf.output(pdf_path)
-        
         return pdf_path
     except Exception as e:
         logger.error(f"Failed to save tailored resume {job_id}: {e}")
