@@ -45,7 +45,8 @@ def call_llm(prompt, json_mode=False):
         payload = {"model": OLLAMA_MODEL, "prompt": prompt, "stream": False}
         if json_mode: payload["format"] = "json"
         try:
-            response = requests.post(OLLAMA_URL, json=payload, timeout=120)
+            # Increased timeout for local generation
+            response = requests.post(OLLAMA_URL, json=payload, timeout=300)
             response.raise_for_status()
             return response.json().get("response", "")
         except Exception as e:
