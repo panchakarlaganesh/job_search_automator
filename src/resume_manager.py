@@ -1,4 +1,5 @@
 import os
+import re
 from fpdf import FPDF
 from src.logger import logger
 
@@ -13,80 +14,108 @@ def read_resume(file_path):
         logger.error(f"Error reading resume {file_path}: {e}")
         return ""
 
-def save_tailored_resume(content, job_id, output_dir="resumes/tailored"):
+class ResumePDF(FPDF):
+    def __init__(self):
+        super().__init__()
+        self.set_auto_page_break(auto=True, margin=15)
+        self.set_left_margin(20)
+        self.set_right_margin(20)
+
+    def header(self):
+        pass # No default header
+
+    def footer(self):
+        self.set_y(-15)
+        self.set_font('Helvetica', 'I', 8)
+        self.cell(0, 10, f'Page {self.page_no()}', 0, 0, 'C')
+
+    def render_markdown(self, content):
+        lines = content.split('\n')
+        for line in lines:
+            line = line.strip()
+            if not line:
+                self.ln(4)
+                continue
+
+            # Headers
+            if line.startswith('# '):
+                self.set_font('Helvetica', 'B', 16)
+                self.multi_cell(0, 10, line[2:].strip())
+                self.ln(2)
+            elif line.startswith('## '):
+                self.ln(2)
+                self.set_font('Helvetica', 'B', 14)
+                self.multi_cell(0, 9, line[3:].strip())
+                self.ln(1)
+            elif line.startswith('### '):
+                self.set_font('Helvetica', 'B', 12)
+                self.multi_cell(0, 8, line[4:].strip())
+            # Bullet points
+            elif line.startswith('- ') or line.startswith('* '):
+                self.set_font('Helvetica', '', 10)
+                text = line[2:].strip()
+                # Handle bolding within bullets
+                self._render_text_with_formatting(text, is_bullet=True)
+            else:
+                self.set_font('Helvetica', '', 10)
+                self._render_text_with_formatting(line)
+
+    def _render_text_with_formatting(self, text, is_bullet=False):
+        """Very basic parser for **bold** text in a line."""
+        parts = re.split(r'(\*\*.*?\*\*)', text)
+        
+        if is_bullet:
+            self.set_x(25) # Indent for bullet
+            self.cell(5, 6, chr(149)) # Bullet character
+        
+        for part in parts:
+            if part.startswith('**') and part.endswith('**'):
+                self.set_font('Helvetica', 'B', 10)
+                clean_part = part[2:-2]
+            else:
+                self.set_font('Helvetica', '', 10)
+                clean_part = part
+            
+            # Use latin-1 for FPDF compatibility
+            try:
+                safe_text = clean_part.encode('latin-1', 'replace').decode('latin-1')
+            except:
+                safe_text = clean_part
+                
+            # We use write instead of multi_cell for inline formatting, 
+            # but this doesn't handle wrapping well. 
+            # For a resume, we'll stick to multi_cell per line for simplicity 
+            # unless a word-by-word bolding engine is needed.
+            # Here we just output the whole line with basic safety.
+        
+        # Simplified: Render the whole line, removing markdown bold tags for now
+        # until a more complex layout engine is added.
+        final_text = text.replace('**', '')
+        try:
+            safe_final = final_text.encode('latin-1', 'replace').decode('latin-1')
+        except:
+            safe_final = final_text
+            
+        self.multi_cell(0, 6, safe_final)
+
+def save_tailored_resume(job_id, content, output_dir="resumes/tailored"):
+    """Saves tailored resume as MD and PDF."""
     if not os.path.exists(output_dir): os.makedirs(output_dir)
     md_path = os.path.join(output_dir, f"{job_id}.md")
     pdf_path = os.path.join(output_dir, f"{job_id}.pdf")
+    
     try:
-        # Save the Markdown version
+        # Save MD
         with open(md_path, "w", encoding="utf-8") as f:
             f.write(content)
-        
-        # Professional PDF Settings
-        pdf = FPDF()
-        pdf.set_auto_page_break(auto=True, margin=15)
-        pdf.add_page()
-        
-        # Standard US Letter/A4 safe margins
-        margin_left = 20
-        margin_right = 20
-        pdf.set_left_margin(margin_left)
-        pdf.set_right_margin(margin_right)
-        
-        # Calculate available content width (A4 is 210mm wide)
-        content_width = 210 - margin_left - margin_right
-        
-        lines = content.split("\n")
-        for line in lines:
-            # Collapse multiple spaces and remove tabs to prevent floating text
-            line = " ".join(line.split()).strip()
             
-            # Explicitly reset X position for every line to prevent horizontal drift
-            pdf.set_x(margin_left)
-
-            if not line:
-                pdf.ln(5)
-                continue
-
-            # 1. Handle Headers
-            if line.startswith("# "):
-                pdf.set_font("Helvetica", 'B', 16)
-                clean_text = line.replace("#", "").replace("**", "").strip()
-                pdf.multi_cell(0, 10, clean_text)
-                pdf.ln(2)
-            elif line.startswith("## "):
-                pdf.set_font("Helvetica", 'B', 14)
-                clean_text = line.replace("#", "").replace("**", "").strip()
-                pdf.multi_cell(0, 9, clean_text)
-                pdf.ln(1)
-            elif line.startswith("### "):
-                pdf.set_font("Helvetica", 'B', 12)
-                clean_text = line.replace("#", "").replace("**", "").strip()
-                pdf.multi_cell(0, 8, clean_text)
-            else:
-                # 2. Handle Body Text & Bullets
-                # Determine if the whole line or parts of it are bold
-                is_bold = "**" in line
-                clean_text = line.replace("**", "").strip()
-                
-                # Render bullet points
-                if clean_text.startswith("- "):
-                    pdf.set_font("Helvetica", 'B' if is_bold else '', 10)
-                    pdf.multi_cell(0, 6, f"  - {clean_text[2:]}")
-                else:
-                    pdf.set_font("Helvetica", 'B' if is_bold else '', 10)
-                    try:
-                        safe_text = clean_text.encode('latin-1', 'replace').decode('latin-1')
-                        pdf.multi_cell(0, 6, safe_text)
-                    except Exception as e:
-                        logger.error(f"Render error: {e}")
-
-        # Clean and save the final PDF
-        if os.path.exists(pdf_path):
-            os.remove(pdf_path)
+        # Save PDF
+        pdf = ResumePDF()
+        pdf.add_page()
+        pdf.render_markdown(content)
         pdf.output(pdf_path)
         
         return pdf_path
     except Exception as e:
-        logger.error(f"Critical error saving PDF for job {job_id}: {e}")
+        logger.error(f"Failed to save tailored resume {job_id}: {e}")
         return None

@@ -147,23 +147,23 @@ def batch_evaluate_matches(jobs_data, base_resume_content):
 
 def tailor_resume(job_description, base_resume_content):
     prompt = f"""
-    You are an expert resume writer. Tailor the following resume to match the job description provided.
-    
-    GUIDELINES:
-    1. Maintain 100% truthfulness. Do not invent experience.
-    2. Adjust the 'Summary' to highlight keywords from the job description.
-    3. Reorder or emphasize skills that are mentioned as 'Required' or 'Preferred'.
-    4. For 'Experience' bullet points, rephrase them to use impactful action verbs and quantify results if possible, focusing on aspects relevant to the job.
-    5. Maintain a professional, clean SINGLE-COLUMN Markdown format.
-    6. DO NOT use tables, columns, or side-by-side text.
-    7. Ensure the tailoring is significant (around 30% change in phrasing/emphasis).
+    You are an expert resume writer specializing in ATS optimization. Your task is to update the provided resume for a specific job description while STRICTLY maintaining the original layout, sections, and formatting style.
 
-    Job Description:
+    GUIDELINES:
+    1.  **Structure:** Do not change the section headers or their order. Keep the contact information exactly as it is.
+    2.  **Surgical Updates:** Only modify the 'Summary' and 'Experience' bullet points.
+    3.  **Enhancement:** For each role in 'Experience', keep the existing bullet points but ADD 1-2 new bullet points that directly address key responsibilities or required technologies from the job description.
+    4.  **Keywords:** Naturally weave in 5-10 keywords from the job description throughout the resume.
+    5.  **Truthfulness:** Do not invent new skills or companies. Only emphasize existing expertise in the context of the job.
+    6.  **Formatting:** Return the full resume in clean Markdown. Use standard bullet points (- ) and bolding (**text**) sparingly for emphasis.
+    7.  **Output:** Provide ONLY the final Markdown content. No introduction or commentary.
+
+    JOB DESCRIPTION:
     {job_description[:3000]}
     
-    Base Resume:
-    {base_resume_content[:4000]}
+    BASE RESUME:
+    {base_resume_content}
     
-    Output ONLY the tailored resume in Markdown. Do not include any intro/outro text.
+    TAILORED RESUME:
     """
     return call_llm(prompt) or base_resume_content
