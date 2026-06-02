@@ -148,28 +148,34 @@ def batch_evaluate_matches(jobs_data, base_resume_content):
 
 def tailor_resume(job_description, base_resume_content):
     prompt = f"""
-    You are an AI-powered ATS Optimization Expert (inspired by Grads.jobs). Your mission is to re-engineer the provided resume to achieve a 95%+ match score for the target job description.
+    You are an AI-powered ATS Optimization Expert (integrating Grads.jobs high-performance patterns). 
+    Your mission is to re-engineer the provided resume to achieve a 95%+ match score while following these STRICT operational rules:
 
-    --- STEP 1: KEYWORD GAP ANALYSIS ---
-    1. Scan the JOB DESCRIPTION for mandatory hard skills, tools, and methodologies.
-    2. Compare them against the BASE RESUME.
-    3. Identify the "Critical Missing Keywords".
+    --- RULE 1: ADDITIVE-ONLY UPDATES ---
+    Identify requirements in the JD that are missing from the resume. 
+    ADD new, high-impact bullet points to cover these gaps.
+    CRITICAL: If a responsibility is already covered, DO NOT change or remove it. ONLY add what is missing.
 
-    --- STEP 2: STRATEGIC RE-ENGINEERING ---
-    1. **Header:** Use the EXACT job title from the JD as the target role title.
-    2. **Summary:** Lead with the strongest relevant tech stack keywords.
-    3. **Technical Skills:** RE-ORDER this section. The very first 3 keywords in each category (Languages, Tools, etc.) MUST be the ones most prominent in the JD.
-    4. **Experience Optimization (Surgical):**
-       - DO NOT invent roles or companies.
-       - For each existing role, RE-PRIORITIZE bullet points. Move bullets using JD technologies to the TOP.
-       - **Impact Injection:** Enhance at least 2 bullets per role to follow: [Action Verb] + [Specific Tool from JD] + [Measurable Business Result].
-       - **Keyword Weaving:** Replace generic terms (e.g., "monitoring") with JD-specific terms (e.g., "Datadog Observability").
+    --- RULE 2: RECENCY & 10-YEAR DEPTH ---
+    Focus 80% of your additions on the MOST RECENT experience (Lead SRE at Apple, 2015-Present). 
+    This role must reflect the full depth of your 10+ years of expertise.
+    Older roles (UKPN, Walgreens) should remain mostly unchanged unless a specific technology from the JD is missing entirely.
 
-    --- STEP 3: OUTPUT RULES ---
-    1. Output ONLY the final resume in clean Markdown.
-    2. STRICTLY preserve the original structure: [Name/Contact] -> [Professional Experience] -> [Education] -> [Technical Skills].
-    3. Ensure dates are consistent (e.g., Apr 2015 – Present).
-    4. No introduction or outro text.
+    --- RULE 3: FIXED SKILL CATEGORIES ---
+    When updating 'Technical Skills', you MUST strictly use only these categories:
+    - Languages & Scripts:
+    - Databases:
+    - Tools:
+    DO NOT create new categories. Re-order the keywords within these 3 lists to put JD-requested tools at the very beginning.
+
+    --- RULE 4: GRADS.JOBS OPTIMIZATION ---
+    For every NEW bullet point you add, follow the formula: [Action Verb] + [JD Technology] + [Measurable Business Result].
+    Naturally weave 5-10 keywords from the JD throughout the resume.
+
+    --- RULE 5: ATS FIDELITY ---
+    - Use the exact job title from the JD as the target role title in the summary.
+    - Output ONLY the final resume in clean Markdown.
+    - Preserve the original layout: [Name] -> [Experience] -> [Education] -> [Technical Skills].
 
     TARGET JOB DESCRIPTION:
     {job_description[:3000]}
@@ -177,6 +183,6 @@ def tailor_resume(job_description, base_resume_content):
     BASE RESUME:
     {base_resume_content}
     
-    TAILORED ATS-OPTIMIZED RESUME:
+    TAILORED ATS-OPTIMIZED RESUME (ADDITIVE):
     """
     return call_llm(prompt) or base_resume_content

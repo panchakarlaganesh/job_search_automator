@@ -71,14 +71,27 @@ def main():
                                     st.markdown(f.read())
                         
                         if os.path.exists(job.tailored_resume_path):
-                            with open(job.tailored_resume_path, "rb") as f:
-                                st.download_button(
-                                    label="💾 Download Tailored Resume (PDF)",
-                                    data=f,
-                                    file_name=f"Resume_{job.company.replace(' ', '_')}.pdf",
-                                    mime="application/pdf",
-                                    key=f"dl_{job.id}",
-                                )
+                            col_dl1, col_dl2 = st.columns(2)
+                            with col_dl1:
+                                with open(job.tailored_resume_path, "rb") as f:
+                                    st.download_button(
+                                        label="💾 Download PDF",
+                                        data=f,
+                                        file_name=f"Resume_{job.company.replace(' ', '_')}.pdf",
+                                        mime="application/pdf",
+                                        key=f"dl_pdf_{job.id}",
+                                    )
+                            with col_dl2:
+                                docx_path = job.tailored_resume_path.replace(".pdf", ".docx")
+                                if os.path.exists(docx_path):
+                                    with open(docx_path, "rb") as f:
+                                        st.download_button(
+                                            label="📝 Download DOCX",
+                                            data=f,
+                                            file_name=f"Resume_{job.company.replace(' ', '_')}.docx",
+                                            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                                            key=f"dl_docx_{job.id}",
+                                        )
                     else:
                         st.info("No tailored resume yet.")
 

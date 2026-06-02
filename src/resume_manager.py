@@ -2,6 +2,7 @@ import os
 import re
 import json
 from fpdf import FPDF
+from docx import Document
 from src.logger import logger
 
 def get_base_resumes(directory="resumes"):
@@ -57,64 +58,37 @@ class ResumePDF(FPDF):
                 self.multi_cell(0, 6, self.safe_text(text))
 
 def save_tailored_resume(job_id, content, output_dir="resumes/tailored"):
-    """Saves tailored resume as MD and PDF, preparing for advanced HTML rendering."""
+    """Saves tailored resume as MD, PDF, and DOCX."""
     if not os.path.exists(output_dir): os.makedirs(output_dir)
     md_path = os.path.join(output_dir, f"{job_id}.md")
     pdf_path = os.path.join(output_dir, f"{job_id}.pdf")
-    html_path = os.path.join(output_dir, f"{job_id}.html")
+    docx_path = os.path.join(output_dir, f"{job_id}.docx")
     
     try:
-        # 1. Save MD (Raw AI output)
+        # 1. Save MD
         with open(md_path, "w", encoding="utf-8") as f:
             f.write(content)
             
-        # 2. Prepare HTML (For high-fidelity rendering)
-        # We can eventually use jinja2 here, but for now a simple string replacement
-        html_template = """
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <style>
-                body { font-family: Arial, sans-serif; line-height: 1.4; margin: 0.5in; font-size: 10pt; color: #333; }
-                h1 { text-align: center; font-size: 18pt; margin-bottom: 0; }
-                .contact { text-align: center; margin-bottom: 15pt; }
-                h3 { border-bottom: 1px solid #000; text-transform: uppercase; margin-top: 15pt; }
-                .job { margin-top: 10pt; }
-                .job-header { font-weight: bold; display: flex; justify-content: space-between; }
-                ul { margin-top: 2pt; padding-left: 20pt; }
-                li { margin-bottom: 2pt; }
-                .skills b { display: inline-block; width: 120px; }
-            </style>
-        </head>
-        <body>
-            [CONTENT]
-        </body>
-        </html>
-        """
-        # Simple markdown to HTML conversion for the preview/future-mcp
-        import markdown2
-        html_body = markdown2.markdown(content)
-        with open(html_path, "w", encoding="utf-8") as f:
-            f.write(html_template.replace("[CONTENT]", html_body))
-
-        # 3. Generate PDF (Using hardened local engine)
+        # 2. Save PDF
         pdf = ResumePDF()
         pdf.add_page()
         pdf.render_markdown(content)
         pdf.output(pdf_path)
+
+        # 3. Save DOCX
+        doc = Document()
+        lines = content.split('\n')
+        for line in lines:
+            line = line.strip()
+            if not line: continue
+            if line.startswith('# '): doc.add_heading(line[2:], 0)
+            elif line.startswith('## '): doc.add_heading(line[3:], 1)
+            elif line.startswith('### '): doc.add_heading(line[4:], 2)
+            elif line.startswith('- ') or line.startswith('* '): doc.add_paragraph(line[2:], style='List Bullet')
+            else: doc.add_paragraph(line.replace('**', ''))
+        doc.save(docx_path)
         
-        return pdf_path
+        return pdf_path # Return PDF as default but DOCX is now created
     except Exception as e:
         logger.error(f"Failed to save tailored resume {job_id}: {e}")
         return None
-
-def generate_professional_pdf(job_id, html_content, output_dir="resumes/tailored"):
-    """
-    Placeholder for future MCP-based high-fidelity PDF generation.
-    This will use the constant_quadruped/pdf-mcp-server:pdf.create_from_html tool.
-    """
-    if not os.path.exists(output_dir): os.makedirs(output_dir)
-    pdf_path = os.path.join(output_dir, f"{job_id}.pdf")
-    # Log that we are ready for high-fidelity conversion
-    logger.info(f"High-fidelity conversion requested for {job_id}. Pending MCP tool availability.")
-    return None
