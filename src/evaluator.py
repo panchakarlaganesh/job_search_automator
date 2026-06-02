@@ -148,23 +148,35 @@ def batch_evaluate_matches(jobs_data, base_resume_content):
 
 def tailor_resume(job_description, base_resume_content):
     prompt = f"""
-    You are an expert resume writer specializing in ATS optimization. Your task is to update the provided resume for a specific job description while STRICTLY maintaining the original layout, sections, and formatting style.
+    You are an AI-powered ATS Optimization Expert (inspired by Grads.jobs). Your mission is to re-engineer the provided resume to achieve a 95%+ match score for the target job description.
 
-    GUIDELINES:
-    1.  **Structure:** Do not change the section headers or their order. Keep the contact information exactly as it is.
-    2.  **Surgical Updates:** Only modify the 'Summary' and 'Experience' bullet points.
-    3.  **Enhancement:** For each role in 'Experience', keep the existing bullet points but ADD 1-2 new bullet points that directly address key responsibilities or required technologies from the job description.
-    4.  **Keywords:** Naturally weave in 5-10 keywords from the job description throughout the resume.
-    5.  **Truthfulness:** Do not invent new skills or companies. Only emphasize existing expertise in the context of the job.
-    6.  **Formatting:** Return the full resume in clean Markdown. Use standard bullet points (- ) and bolding (**text**) sparingly for emphasis.
-    7.  **Output:** Provide ONLY the final Markdown content. No introduction or commentary.
+    --- STEP 1: KEYWORD GAP ANALYSIS ---
+    1. Scan the JOB DESCRIPTION for mandatory hard skills, tools, and methodologies.
+    2. Compare them against the BASE RESUME.
+    3. Identify the "Critical Missing Keywords".
 
-    JOB DESCRIPTION:
+    --- STEP 2: STRATEGIC RE-ENGINEERING ---
+    1. **Header:** Use the EXACT job title from the JD as the target role title.
+    2. **Summary:** Lead with the strongest relevant tech stack keywords.
+    3. **Technical Skills:** RE-ORDER this section. The very first 3 keywords in each category (Languages, Tools, etc.) MUST be the ones most prominent in the JD.
+    4. **Experience Optimization (Surgical):**
+       - DO NOT invent roles or companies.
+       - For each existing role, RE-PRIORITIZE bullet points. Move bullets using JD technologies to the TOP.
+       - **Impact Injection:** Enhance at least 2 bullets per role to follow: [Action Verb] + [Specific Tool from JD] + [Measurable Business Result].
+       - **Keyword Weaving:** Replace generic terms (e.g., "monitoring") with JD-specific terms (e.g., "Datadog Observability").
+
+    --- STEP 3: OUTPUT RULES ---
+    1. Output ONLY the final resume in clean Markdown.
+    2. STRICTLY preserve the original structure: [Name/Contact] -> [Professional Experience] -> [Education] -> [Technical Skills].
+    3. Ensure dates are consistent (e.g., Apr 2015 – Present).
+    4. No introduction or outro text.
+
+    TARGET JOB DESCRIPTION:
     {job_description[:3000]}
     
     BASE RESUME:
     {base_resume_content}
     
-    TAILORED RESUME:
+    TAILORED ATS-OPTIMIZED RESUME:
     """
     return call_llm(prompt) or base_resume_content
