@@ -141,28 +141,41 @@ def main():
                             st.warning("No tailored resume generated yet for this job.")
                         
                         if st.button("✨ Regenerate Tailored Resume", key=f"gen_{job.id}"):
-                            with st.spinner("AI is tailoring your resume..."):
-                                from src.evaluator import tailor_resume
-                                from src.resume_manager import get_base_resumes, read_resume, save_tailored_resume
-                                
-                                base_resumes = get_base_resumes()
-                                if base_resumes:
-                                    base_path = os.path.join("resumes", base_resumes[0])
-                                    base_content = read_resume(base_path)
+                            with st.spinner("AI is tailoring your resume (this may take 30-60 seconds)..."):
+                                try:
+                                    from src.evaluator import tailor_resume
+                                    from src.resume_manager import get_base_resumes, read_resume, save_tailored_resume
                                     
-                                    # Call the new tailoring logic
-                                    new_content = tailor_resume(job.description, base_content)
-                                    pdf_path = save_tailored_resume(job.id, new_content)
-                                    
-                                    if pdf_path:
-                                        job.tailored_resume_path = pdf_path
-                                        db.commit()
-                                        st.success("Resume updated successfully!")
-                                        st.rerun()
+                                    base_resumes = get_base_resumes()
+                                    if base_resumes:
+                                        # Use the first one found or specifically base_resume.md
+                                        base_name = "base_resume.md" if "base_resume.md" in base_resumes else base_resumes[0]
+                                        base_path = os.path.join("resumes", base_name)
+                                        base_content = read_resume(base_path)
+                                        
+                                        if not base_content:
+                                            st.error(f"Could not read content from {base_path}")
+                                            return
+
+                                        # Call the new tailoring logic
+                                        new_content = tailor_resume(job.description, base_content)
+                                        
+                                        if new_content and len(new_content) > 100:
+                                            pdf_path = save_tailored_resume(job.id, new_content)
+                                            
+                                            if pdf_path:
+                                                job.tailored_resume_path = pdf_path
+                                                db.commit()
+                                                st.success("Resume updated successfully!")
+                                                st.rerun()
+                                            else:
+                                                st.error("AI returned content, but failed to save as PDF.")
+                                        else:
+                                            st.error("AI failed to generate resume content. Check your API keys or local LLM connection.")
                                     else:
-                                        st.error("Failed to save tailored resume.")
-                                else:
-                                    st.error("No base resume found in resumes/ folder.")
+                                        st.error("No base resume found in resumes/ folder.")
+                                except Exception as e:
+                                    st.error(f"Critical error during tailoring: {str(e)}")
 
                         # --- OUTREACH EMAIL ---
                         if st.button("Draft Outreach Email", key=f"rec_{job.id}"):
