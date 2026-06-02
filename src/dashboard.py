@@ -112,10 +112,10 @@ def main():
 
                         posted_str = job.posted_date.strftime("%Y-%m-%d") if job.posted_date else "Unknown"
                         st.write(f"**Posted Date:** {posted_str}")
-                        st.write(f"**Match Score:** {job.match_score if job.match_score else 'N/A'}")
-
-                        if job.match_reason:
-                            st.info(f"**AI Match Analysis:** {job.match_reason}")
+                        # AI Analysis hidden per user request
+                        # st.write(f"**Match Score:** {job.match_score if job.match_score else 'N/A'}")
+                        # if job.match_reason:
+                        #     st.info(f"**AI Match Analysis:** {job.match_reason}")
 
                         # --- RESUME PREVIEW & DOWNLOAD ---
                         st.divider()
@@ -141,41 +141,43 @@ def main():
                             st.warning("No tailored resume generated yet for this job.")
                         
                         if st.button("✨ Regenerate Tailored Resume", key=f"gen_{job.id}"):
-                            with st.spinner("AI is tailoring your resume (this may take 30-60 seconds)..."):
-                                try:
-                                    from src.evaluator import tailor_resume
-                                    from src.resume_manager import get_base_resumes, read_resume, save_tailored_resume
+                            progress_text = st.empty()
+                            progress_text.info("Step 1/3: Initializing AI...")
+                            try:
+                                from src.evaluator import tailor_resume
+                                from src.resume_manager import get_base_resumes, read_resume, save_tailored_resume
+                                
+                                base_resumes = get_base_resumes()
+                                if base_resumes:
+                                    base_name = "base_resume.md"
+                                    base_path = os.path.join("resumes", base_name)
+                                    base_content = read_resume(base_path)
                                     
-                                    base_resumes = get_base_resumes()
-                                    if base_resumes:
-                                        # Use the first one found or specifically base_resume.md
-                                        base_name = "base_resume.md" if "base_resume.md" in base_resumes else base_resumes[0]
-                                        base_path = os.path.join("resumes", base_name)
-                                        base_content = read_resume(base_path)
-                                        
-                                        if not base_content:
-                                            st.error(f"Could not read content from {base_path}")
-                                            return
+                                    if not base_content:
+                                        st.error(f"Could not read content from {base_path}")
+                                        return
 
-                                        # Call the new tailoring logic
-                                        new_content = tailor_resume(job.description, base_content)
+                                    progress_text.info("Step 2/3: AI is writing your resume (using Gemini)...")
+                                    # Call the new tailoring logic
+                                    new_content = tailor_resume(job.description, base_content)
+                                    
+                                    if new_content and len(new_content) > 100:
+                                        progress_text.info("Step 3/3: Generating PDF layout...")
+                                        pdf_path = save_tailored_resume(job.id, new_content)
                                         
-                                        if new_content and len(new_content) > 100:
-                                            pdf_path = save_tailored_resume(job.id, new_content)
-                                            
-                                            if pdf_path:
-                                                job.tailored_resume_path = pdf_path
-                                                db.commit()
-                                                st.success("Resume updated successfully!")
-                                                st.rerun()
-                                            else:
-                                                st.error("AI returned content, but failed to save as PDF.")
+                                        if pdf_path:
+                                            job.tailored_resume_path = pdf_path
+                                            db.commit()
+                                            progress_text.success("Success! Click 'View Resume Content' above to see it.")
+                                            st.rerun()
                                         else:
-                                            st.error("AI failed to generate resume content. Check your API keys or local LLM connection.")
+                                            st.error("AI finished, but PDF generation failed.")
                                     else:
-                                        st.error("No base resume found in resumes/ folder.")
-                                except Exception as e:
-                                    st.error(f"Critical error during tailoring: {str(e)}")
+                                        st.error("AI returned empty or invalid content. Check GEMINI_API_KEY.")
+                                else:
+                                    st.error("No base_resume.md found in resumes/ folder.")
+                            except Exception as e:
+                                st.error(f"Critical error: {str(e)}")
 
                         # --- OUTREACH EMAIL ---
                         if st.button("Draft Outreach Email", key=f"rec_{job.id}"):
