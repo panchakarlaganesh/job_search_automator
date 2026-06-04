@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <style>
+        body {
+            font-family: Arial, Helvetica, sans-serif;
+            font-size: 10pt;
+            line-height: 1.25;
+            color: #333;
+            margin: 0.75in;
+        }
+        h1 {
+            font-size: 18pt;
+            margin-bottom: 2pt;
+            text-align: center;
+            color: #000;
+        }
+        .contact {
+            text-align: center;
+            margin-bottom: 15pt;
+            font-size: 10pt;
+        }
+        h3 {
+            font-size: 12pt;
+            border-bottom: 1pt solid #000;
+            margin-top: 15pt;
+            margin-bottom: 8pt;
+            text-transform: uppercase;
+            color: #000;
+        }
+        .job-header {
+            display: flex;
+            justify-content: space-between;
+            font-weight: bold;
+            margin-top: 10pt;
+        }
+        .job-title {
+            font-weight: bold;
+        }
+        .job-date {
+            text-align: right;
+        }
+        ul {
+            margin-top: 3pt;
+            padding-left: 15pt;
+        }
+        li {
+            margin-bottom: 3pt;
+        }
+        .skills-list {
+            margin-top: 5pt;
+        }
+        .skill-category {
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <h1>{{full_name}}</h1>
+    <div class="contact">
+        {{contact_info}}
+    </div>
+
+    <h3>Professional Experience</h3>
+    
+    {% for job in experience %}
+    <div class="job-header">
+        <span class="job-title">{{job.title}} | {{job.company}}</span>
+        <span class="job-date">{{job.date}}</span>
+    </div>
+    <ul>
+        {% for bullet in job.bullets %}
+        <li>{{bullet}}</li>
+        {% endfor %}
+    </ul>
+    {% endfor %}
+
+    <h3>Education</h3>
+    <div class="job-header">
+        <span>{{education.degree}} | {{education.university}}</span>
+        <span>{{education.date}}</span>
+    </div>
+    <ul>
+        <li>{{education.details}}</li>
+    </ul>
+
+    <h3>Technical Skills</h3>
+    <div class="skills-list">
+        <div><span class="skill-category">Languages & Scripts:</span> {{skills.languages}}</div>
+        <div><span class="skill-category">Databases:</span> {{skills.databases}}</div>
+        <div><span class="skill-category">Tools:</span> {{skills.tools}}</div>
+    </div>
+</body>
+</html>

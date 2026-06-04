@@ -97,7 +97,7 @@ def main():
 
                     if st.button("✨ Regenerate Tailored Resume", key=f"gen_{job.id}"):
                         progress = st.empty()
-                        progress.info("Step 1/3: Reading your Apple Lead SRE resume...")
+                        progress.info("🔄 Step 1/3: Reading your Apple Lead SRE resume...")
                         try:
                             from src.evaluator import tailor_resume
                             from src.resume_manager import read_resume, save_tailored_resume
@@ -106,22 +106,24 @@ def main():
                             if not base_content:
                                 st.error("Could not find resumes/base_resume.md")
                             else:
-                                progress.info("Step 2/3: AI is writing... (using local Ollama)")
+                                progress.warning("⏳ Step 2/3: AI is writing... (This takes 1-2 minutes on local Ollama. Please do not refresh.)")
+                                # Use a container to keep the message visible
                                 new_content = tailor_resume(job.description, base_content)
+                                
                                 if new_content and len(new_content) > 500:
-                                    progress.info("Step 3/3: Finalizing PDF layout...")
+                                    progress.info("🎨 Step 3/3: Finalizing PDF and DOCX layouts...")
                                     pdf_path = save_tailored_resume(job.id, new_content)
                                     if pdf_path:
                                         job.tailored_resume_path = pdf_path
                                         db.commit()
-                                        progress.success("Finished! Open the expander above to see your tailored resume.")
+                                        progress.success("✅ Success! Your tailored resume is ready. Click the download buttons below.")
                                         st.rerun()
                                     else:
-                                        st.error("Failed to build PDF.")
+                                        st.error("❌ Failed to build PDF/DOCX.")
                                 else:
-                                    st.error("AI returned invalid content. Check Ollama logs.")
+                                    st.error("❌ AI returned invalid content. Please check if Ollama is running.")
                         except Exception as e:
-                            st.error(f"Error: {str(e)}")
+                            st.error(f"❌ Error: {str(e)}")
 
                     st.write(f"[Job Link]({job.url})")
 
