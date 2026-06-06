@@ -149,42 +149,97 @@ def batch_evaluate_matches(jobs_data, base_resume_content):
         return []
 
 def tailor_resume(job_description, base_resume_content):
+    """
+    Advanced additive tailoring: Asks AI for specific additions and merges them 
+    with the full base resume to prevent content loss.
+    """
     prompt = f"""
-    You are an AI-powered ATS Optimization Expert (integrating Grads.jobs high-performance patterns). 
-    Your mission is to re-engineer the provided resume to achieve a 95%+ match score while following these STRICT operational rules:
-
-    --- RULE 1: ADDITIVE-ONLY UPDATES ---
-    Identify requirements in the JD that are missing from the resume. 
-    ADD new, high-impact bullet points to cover these gaps.
-    CRITICAL: If a responsibility is already covered, DO NOT change or remove it. ONLY add what is missing.
-
-    --- RULE 2: RECENCY & 10-YEAR DEPTH ---
-    Focus 80% of your additions on the MOST RECENT experience (Lead SRE at Apple, 2015-Present). 
-    This role must reflect the full depth of your 10+ years of expertise.
-    Older roles (UKPN, Walgreens) should remain mostly unchanged unless a specific technology from the JD is missing entirely.
-
-    --- RULE 3: FIXED SKILL CATEGORIES ---
-    When updating 'Technical Skills', you MUST strictly use only these categories:
-    - Languages & Scripts:
-    - Databases:
-    - Tools:
-    DO NOT create new categories. Re-order the keywords within these 3 lists to put JD-requested tools at the very beginning.
-
-    --- RULE 4: GRADS.JOBS OPTIMIZATION ---
-    For every NEW bullet point you add, follow the formula: [Action Verb] + [JD Technology] + [Measurable Business Result].
-    Naturally weave 5-10 keywords from the JD throughout the resume.
-
-    --- RULE 5: ATS FIDELITY ---
-    - Use the exact job title from the JD as the target role title in the summary.
-    - Output ONLY the final resume in clean Markdown.
-    - Preserve the original layout: [Name] -> [Experience] -> [Education] -> [Technical Skills].
-
-    TARGET JOB DESCRIPTION:
+    You are an AI-powered ATS Optimization Expert. Your mission is to provide SPECIFIC ADDITIONS for a resume to match a job description.
+    
+    --- BASE RESUME CONTENT ---
+    {base_resume_content[:4000]}
+    
+    --- TARGET JOB DESCRIPTION ---
     {job_description[:3000]}
     
-    BASE RESUME:
-    {base_resume_content}
+    --- TASK ---
+    Identify missing keywords and responsibilities. Provide ONLY the new content to be added.
     
-    TAILORED ATS-OPTIMIZED RESUME (ADDITIVE):
+    CRITICAL RULES:
+    1. Do not rewrite existing experience.
+    2. Focus additions on the "Lead SRE at Apple" role.
+    3. Use categories: "Languages & Scripts", "Databases", "Tools".
+    4. Provide 2-3 high-impact bullets that use tools/skills from the JD not already in the resume.
+    
+    Return a JSON object with:
+    - "target_job_title": "The specific job title from the JD"
+    - "new_apple_bullets": ["Bullet 1", "Bullet 2"]
+    - "reordered_skills": {{
+        "languages": "Java, JavaScript, Bash, Python, SQL...",
+        "databases": "PostgreSQL, SQL, MongoDB...",
+        "tools": "ServiceNow, Kubernetes, AWS..."
+      }}
     """
-    return call_llm(prompt) or base_resume_content
+    
+    response_text = call_llm(prompt, json_mode=True)
+    logger.info(f"AI Raw Response: {response_text[:500]}...")
+    try:
+        cleaned = clean_json_response(response_text)
+        additions = json.loads(cleaned)
+        logger.info(f"Extracted Additions: {additions.keys()}")
+        return merge_additions_to_resume(base_resume_content, additions)
+    except Exception as e:
+        logger.error(f"Failed to parse additions JSON: {e}")
+        return base_resume_content
+
+def merge_additions_to_resume(base_content, additions):
+    """Surgically merges AI additions into the base markdown with robust matching."""
+    try:
+        lines = base_content.split('\n')
+        new_lines = []
+        
+        target_title = additions.get("target_job_title", "").strip()
+        apple_bullets = additions.get("new_apple_bullets", [])
+        skills = additions.get("reordered_skills", {})
+        
+        found_apple_role = False
+        
+        for line in lines:
+            # 1. Update Title in Header (Looking for the first bold title line)
+            if re.match(r'^\*\*.*\*\*$', line.strip()) and not found_apple_role and target_title:
+                new_lines.append(f"**{target_title}**")
+                target_title = None # Only update first occurrence
+                continue
+                
+            # 2. Find Apple Role Start
+            if "Apple" in line and ("Lead SRE" in line or "SRE" in line) and not found_apple_role:
+                found_apple_role = True
+                new_lines.append(line)
+                # Inject new bullets at the top of the Apple role
+                for bullet in apple_bullets:
+                    clean_bullet = bullet.strip()
+                    if clean_bullet:
+                        # Ensure no double dashes
+                        if clean_bullet.startswith("- "): clean_bullet = clean_bullet[2:]
+                        elif clean_bullet.startswith("-"): clean_bullet = clean_bullet[1:]
+                        new_lines.append(f"- {clean_bullet}")
+                continue
+            
+            # 3. Update Skills (Lock to categories)
+            if "Languages & Scripts:" in line and skills.get("languages"):
+                new_lines.append(f"- **Languages & Scripts:** {skills['languages']}")
+                continue
+            if "Databases:" in line and skills.get("databases"):
+                new_lines.append(f"- **Databases:** {skills['databases']}")
+                continue
+            if "Tools:" in line and skills.get("tools"):
+                new_lines.append(f"- **Tools:** {skills['tools']}")
+                continue
+                
+            new_lines.append(line)
+            
+        logger.info(f"Merge complete. Found Apple role: {found_apple_role}. Added {len(apple_bullets)} bullets.")
+        return '\n'.join(new_lines)
+    except Exception as e:
+        logger.error(f"Merge logic failed: {e}")
+        return base_content
