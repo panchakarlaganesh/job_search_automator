@@ -74,7 +74,33 @@ async def run_automation():
         db.commit()
         logger.info(f"Scrape complete. Found {len(raw_jobs)} jobs, {len(newly_added_jobs)} were newly added.")
 
-        # 3. Direct Notifications (Filter by last run time for strict incrementality)
+        # 3. Automatic Tailoring (NEW: No scoring threshold, tailor everything)
+        if newly_added_jobs:
+            logger.info(f"Automatically tailoring resumes for {len(newly_added_jobs)} jobs...")
+            base_content = read_resume("resumes/base_resume.md")
+            
+            for i, job_data in enumerate(newly_added_jobs):
+                try:
+                    # Fetch the actual Job object to update path
+                    job_obj = db.query(Job).filter(Job.job_id_external == job_data["job_id_external"]).first()
+                    if not job_obj: continue
+
+                    logger.info(f"[{i+1}/{len(newly_added_jobs)}] Tailoring for {job_obj.company}...")
+                    
+                    # Call the additive tailoring engine
+                    tailored_content = tailor_resume(job_obj.description, base_content)
+                    
+                    if tailored_content and len(tailored_content) > 1000:
+                        pdf_path = save_tailored_resume(job_obj.id, tailored_content)
+                        if pdf_path:
+                            job_obj.tailored_resume_path = pdf_path
+                            db.commit()
+                    
+                except Exception as e:
+                    logger.error(f"Failed to auto-tailor job {job_data.get('job_id_external')}: {e}")
+                    continue
+
+        # 4. Direct Notifications
         if newly_added_jobs:
             if last_run and last_run.start_time:
                 # Filter out jobs that might have been posted before the last run but only discovered now
