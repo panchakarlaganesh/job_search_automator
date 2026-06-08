@@ -59,6 +59,29 @@ def main():
                 with col1:
                     st.write(f"**Posted:** {job.posted_date.strftime('%Y-%m-%d') if job.posted_date else 'Unknown'} | **Location:** {job.location}")
                     
+                    # --- NEW: ADVANCED MATCH ANALYTICS ---
+                    if st.button("📊 Calculate Detailed Match %", key=f"eval_{job.id}"):
+                        with st.spinner("Analyzing profile alignment..."):
+                            from src.evaluator import evaluate_match
+                            from src.resume_manager import read_resume
+                            base_content = read_resume("resumes/base_resume.md")
+                            analysis = evaluate_match(job.description, base_content)
+                            
+                            if analysis:
+                                score = analysis.get("score", 0.0)
+                                st.metric("Overall Match", f"{int(score * 100)}%")
+                                
+                                breakdown = analysis.get("breakdown", {})
+                                b_col1, b_col2, b_col3 = st.columns(3)
+                                b_col1.write(f"**Tech:** {breakdown.get('technical', 'N/A')}")
+                                b_col2.write(f"**Seniority:** {breakdown.get('seniority', 'N/A')}")
+                                b_col3.write(f"**Domain:** {breakdown.get('domain', 'N/A')}")
+                                
+                                if analysis.get("missing_critical_keywords"):
+                                    st.warning(f"**Missing Keywords:** {', '.join(analysis['missing_critical_keywords'])}")
+                                
+                                st.info(f"**Expert Insight:** {analysis.get('reason', 'Analysis complete.')}")
+
                     # --- RESUME PREVIEW & DOWNLOAD ---
                     st.divider()
                     st.subheader("Tailored Resume")
@@ -106,12 +129,12 @@ def main():
                             if not base_content:
                                 st.error("Could not find resumes/base_resume.md")
                             else:
-                                progress.warning("⏳ Step 2/3: AI is writing... (This takes 1-2 minutes on local Ollama. Please do not refresh.)")
+                                progress.warning("⏳ Step 2/3: AI is identifying missing skills and generating new pointers... (1-2 mins)")
                                 # Use a container to keep the message visible
                                 new_content = tailor_resume(job.description, base_content)
                                 
-                                if new_content and len(new_content) > 500:
-                                    progress.info("🎨 Step 3/3: Finalizing PDF and DOCX layouts...")
+                                if new_content and len(new_content) > 1000:
+                                    progress.info("🎨 Step 3/3: Surgically merging new points into your Apple experience...")
                                     pdf_path = save_tailored_resume(job.id, new_content)
                                     if pdf_path:
                                         job.tailored_resume_path = pdf_path

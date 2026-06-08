@@ -76,17 +76,34 @@ def call_llm(prompt, json_mode=False):
 
 def evaluate_match(job_description, base_resume_content):
     prompt = f"""
-    Evaluate the match between the following job description and the candidate's resume.
+    You are an ATS Scoring Algorithm. Evaluate the match between the Job Description and the Resume.
     
-    Job Description:
+    --- CANDIDATE EXPERTISE NOTES ---
+    - Candidate is a Lead SRE with 10+ years experience.
+    - Treat 'Terraform' and 'Ansible' as direct matches for 'Infrastructure as Code' or 'IaC'.
+    - Treat 'Splunk', 'Grafana', 'Prometheus' as direct matches for 'Observability' and 'Monitoring'.
+    - Treat 'AEM' and 'Alfresco' as enterprise platform experience.
+    
+    --- SCORING CRITERIA ---
+    1. **Technical Alignment (50%)**: How many of the JD's required tools are in the Resume?
+    2. **Seniority Match (30%)**: Does the candidate's 'Lead' status match the JD's requirements?
+    3. **Domain Match (20%)**: Does the candidate have experience in the specific industry or scale mentioned?
+
+    Return a JSON object with:
+    - "score": A float (0.0 to 1.0) representing the total match percentage.
+    - "breakdown": {{
+        "technical": "Percentage for Tech Alignment",
+        "seniority": "Percentage for Seniority",
+        "domain": "Percentage for Domain/Scale"
+      }}
+    - "missing_critical_keywords": ["Tool A", "Skill B"]
+    - "reason": "A 1-sentence explanation of why this score was given."
+
+    JOB DESCRIPTION:
     {job_description[:2000]}
     
-    Resume:
+    RESUME:
     {base_resume_content[:2000]}
-    
-    Return a JSON object with:
-    - 'score': A float between 0 and 1 representing the match quality.
-    - 'reason': A brief explanation for the score.
     """
     response_text = call_llm(prompt, json_mode=True)
     try:
@@ -94,7 +111,7 @@ def evaluate_match(job_description, base_resume_content):
         return json.loads(cleaned)
     except Exception as e:
         logger.error(f"Failed to parse evaluation response: {e}")
-        return {"score": 0.0, "reason": "Error parsing LLM response"}
+        return {"score": 0.0, "reason": "Error parsing LLM response", "breakdown": {}}
 
 def batch_evaluate_matches(jobs_data, base_resume_content):
     if not jobs_data: return []
@@ -193,52 +210,64 @@ def tailor_resume(job_description, base_resume_content):
         return base_resume_content
 
 def merge_additions_to_resume(base_content, additions):
-    """Surgically merges AI additions into the base markdown with robust matching."""
+    """
+    Surgically merges AI additions into the base markdown.
+    Guarantees 100% preservation of existing content while adding new points.
+    """
     try:
         lines = base_content.split('\n')
         new_lines = []
         
         target_title = additions.get("target_job_title", "").strip()
         apple_bullets = additions.get("new_apple_bullets", [])
-        skills = additions.get("reordered_skills", {})
+        skills_additions = additions.get("reordered_skills", {})
         
         found_apple_role = False
         
+        def clean_list(s):
+            return [x.strip() for x in s.replace('*', '').split(',') if x.strip()]
+
         for line in lines:
-            # 1. Update Title in Header (Looking for the first bold title line)
-            if re.match(r'^\*\*.*\*\*$', line.strip()) and not found_apple_role and target_title:
-                new_lines.append(f"**{target_title}**")
-                target_title = None # Only update first occurrence
+            stripped = line.strip()
+
+            # 1. Update/Add Target Title (Keep original Lead SRE but add JD title)
+            if stripped == "**Lead SRE**" and target_title:
+                new_lines.append(f"**Lead SRE | {target_title}**")
+                target_title = None
                 continue
                 
-            # 2. Find Apple Role Start
+            # 2. Add New Bullets to Apple Experience
             if "Apple" in line and ("Lead SRE" in line or "SRE" in line) and not found_apple_role:
                 found_apple_role = True
                 new_lines.append(line)
-                # Inject new bullets at the top of the Apple role
                 for bullet in apple_bullets:
-                    clean_bullet = bullet.strip()
-                    if clean_bullet:
-                        # Ensure no double dashes
-                        if clean_bullet.startswith("- "): clean_bullet = clean_bullet[2:]
-                        elif clean_bullet.startswith("-"): clean_bullet = clean_bullet[1:]
-                        new_lines.append(f"- {clean_bullet}")
+                    b = bullet.strip().lstrip('-').strip()
+                    if b: new_lines.append(f"- {b}")
                 continue
             
-            # 3. Update Skills (Lock to categories)
-            if "Languages & Scripts:" in line and skills.get("languages"):
-                new_lines.append(f"- **Languages & Scripts:** {skills['languages']}")
+            # 3. Add to Technical Skills (Additive Merging)
+            if "Languages & Scripts:" in line and skills_additions.get("languages"):
+                orig = clean_list(line.split(":", 1)[1])
+                new_items = clean_list(skills_additions["languages"])
+                merged = ", ".join(list(dict.fromkeys(new_items + orig))) # Deduplicate, keeping new first
+                new_lines.append(f"- **Languages & Scripts:** {merged}")
                 continue
-            if "Databases:" in line and skills.get("databases"):
-                new_lines.append(f"- **Databases:** {skills['databases']}")
+            if "Databases:" in line and skills_additions.get("databases"):
+                orig = clean_list(line.split(":", 1)[1])
+                new_items = clean_list(skills_additions["databases"])
+                merged = ", ".join(list(dict.fromkeys(new_items + orig)))
+                new_lines.append(f"- **Databases:** {merged}")
                 continue
-            if "Tools:" in line and skills.get("tools"):
-                new_lines.append(f"- **Tools:** {skills['tools']}")
+            if "Tools:" in line and skills_additions.get("tools"):
+                orig = clean_list(line.split(":", 1)[1])
+                new_items = clean_list(skills_additions["tools"])
+                merged = ", ".join(list(dict.fromkeys(new_items + orig)))
+                new_lines.append(f"- **Tools:** {merged}")
                 continue
                 
             new_lines.append(line)
             
-        logger.info(f"Merge complete. Found Apple role: {found_apple_role}. Added {len(apple_bullets)} bullets.")
+        logger.info(f"Merge successful. Apple role found: {found_apple_role}. Added {len(apple_bullets)} new points.")
         return '\n'.join(new_lines)
     except Exception as e:
         logger.error(f"Merge logic failed: {e}")
