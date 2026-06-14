@@ -150,17 +150,19 @@ async def scrape_linkedin(keywords, locations, max_items, days_back):
                     cards = await page.query_selector_all(".base-card, .job-search-card")
                     for card in cards[:max_items]:
                         title_el = await card.query_selector(".base-search-card__title, h3")
+                        company_el = await card.query_selector(".base-search-card__subtitle, .hidden-nested-link")
                         link_el = await card.query_selector("a.base-card__full-link, a")
                         if title_el and link_el:
                             title = (await title_el.inner_text()).strip()
+                            company = (await company_el.inner_text()).strip() if company_el else "Unknown"
                             href = await link_el.get_attribute("href")
                             job_url = normalize_job_url(href, "https://www.linkedin.com")
                             if not job_url:
                                 continue
                             jobs.append({
-                                "job_id_external": stable_job_id("linkedin", job_url, title, "LinkedIn"),
-                                "title": title, "company": "LinkedIn", "location": loc, "url": job_url,
-                                "source": "linkedin", "description": f"LinkedIn: {title}", "posted_date": datetime.now()
+                                "job_id_external": stable_job_id("linkedin", job_url, title, company),
+                                "title": title, "company": company, "location": loc, "url": job_url,
+                                "source": "linkedin", "description": f"LinkedIn: {title} @ {company}", "posted_date": datetime.now()
                             })
                 except Exception as e: logger.error(f"LinkedIn Error: {e}")
         await browser.close()
@@ -182,17 +184,19 @@ async def scrape_ziprecruiter(keywords, locations, max_items, days_back):
                     cards = await page.query_selector_all(".job_content, .job_result")
                     for card in cards[:max_items]:
                         title_el = await card.query_selector(".job_title, h2")
+                        company_el = await card.query_selector(".hiring_company_name, .company_name")
                         link_el = await card.query_selector("a.job_link, a")
                         if title_el and link_el:
                             title = (await title_el.inner_text()).strip()
+                            company = (await company_el.inner_text()).strip() if company_el else "Unknown"
                             href = await link_el.get_attribute("href")
                             job_url = normalize_job_url(href, "https://www.ziprecruiter.com")
                             if not job_url:
                                 continue
                             jobs.append({
-                                "job_id_external": stable_job_id("ziprecruiter", job_url, title, "ZipRecruiter"),
-                                "title": title, "company": "ZipRecruiter", "location": loc, "url": job_url,
-                                "source": "ziprecruiter", "description": f"ZipRecruiter: {title}", "posted_date": datetime.now()
+                                "job_id_external": stable_job_id("ziprecruiter", job_url, title, company),
+                                "title": title, "company": company, "location": loc, "url": job_url,
+                                "source": "ziprecruiter", "description": f"ZipRecruiter: {title} @ {company}", "posted_date": datetime.now()
                             })
                 except Exception as e: logger.error(f"ZipRecruiter Error: {e}")
         await browser.close()
@@ -215,16 +219,18 @@ async def scrape_glassdoor(keywords, locations, max_items, days_back):
                     cards = await page.query_selector_all("[data-test='job-listing']")
                     for card in cards[:max_items]:
                         title_el = await card.query_selector("[data-test='job-title']")
+                        company_el = await card.query_selector("[data-test='employer-short-name']")
                         if title_el:
                             title = (await title_el.inner_text()).strip()
+                            company = (await company_el.inner_text()).strip() if company_el else "Unknown"
                             href = await title_el.get_attribute("href")
                             job_url = normalize_job_url(href, "https://www.glassdoor.com")
                             if not job_url:
                                 continue
                             jobs.append({
-                                "job_id_external": stable_job_id("glassdoor", job_url, title, "Glassdoor"),
-                                "title": title, "company": "Glassdoor", "location": loc, "url": job_url,
-                                "source": "glassdoor", "description": f"Glassdoor: {title}", "posted_date": datetime.now()
+                                "job_id_external": stable_job_id("glassdoor", job_url, title, company),
+                                "title": title, "company": company, "location": loc, "url": job_url,
+                                "source": "glassdoor", "description": f"Glassdoor: {title} @ {company}", "posted_date": datetime.now()
                             })
                 except Exception as e: logger.error(f"Glassdoor Error: {e}")
         await browser.close()
