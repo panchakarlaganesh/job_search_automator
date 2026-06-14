@@ -7,7 +7,31 @@ from src.logger import logger
 
 def get_base_resumes(directory="resumes"):
     if not os.path.exists(directory): os.makedirs(directory)
-    return [f for f in os.listdir(directory) if f.endswith(".md")]
+    return [f for f in os.listdir(directory) if f.endswith(".md") and not f.startswith("tailored/")]
+
+def select_best_base_resume(job_title, job_description, directory="resumes"):
+    resumes = get_base_resumes(directory)
+    if not resumes: return None
+    
+    # Ensure tailored folder is ignored if it's inside resumes
+    resumes = [r for r in resumes if "tailored" not in r]
+    
+    best_score = -1
+    best_resume = resumes[0]
+    
+    # Extract keywords from job info
+    terms = set(re.findall(r'\w+', (job_title + " " + job_description).lower()))
+    
+    for r_file in resumes:
+        file_path = os.path.join(directory, r_file)
+        content = read_resume(file_path).lower()
+        # Overlap score
+        score = sum(1 for term in terms if term in content)
+        if score > best_score:
+            best_score = score
+            best_resume = file_path
+            
+    return best_resume
 
 def read_resume(file_path):
     try:

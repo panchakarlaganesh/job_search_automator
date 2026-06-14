@@ -23,30 +23,40 @@ def notify_intervention(job_title, company, url):
 
 def notify_new_jobs(jobs_list):
     """
-    Sends a summary of newly found jobs, splitting into multiple messages if needed.
+    Sends a summary of newly found jobs, categorized by region.
     """
     if not jobs_list:
         return
 
-    count = len(jobs_list)
-    header = f"Found {count} New Jobs\n\n"
+    # Categorize
+    us_jobs = [j for j in jobs_list if "united states" in (j.get("location") or "").lower()]
+    india_jobs = [j for j in jobs_list if "india" in (j.get("location") or "").lower()]
+    other_jobs = [j for j in jobs_list if j not in us_jobs and j not in india_jobs]
 
-    current_message = header
+    def send_region_summary(region_name, jobs):
+        if not jobs: return
+        
+        header = f"🌍 *New Jobs in {region_name}* ({len(jobs)})\n"
+        header += "═" * 20 + "\n\n"
+        
+        current_message = header
+        for i, job in enumerate(jobs):
+            score_text = f"🔥 *Match: {int(job['match_score']*100)}%*" if job.get('match_score') else ""
+            job_entry = f"{i + 1}. {job['title']} @ {job['company']}\n{score_text}\n📍 {job.get('location', 'N/A')}\n🔗 [View Job]({job['url']})\n\n"
 
-    for i, job in enumerate(jobs_list):
-        job_entry = f"{i + 1}. {job['title']}\nCompany: {job['company']}\nURL: {job['url']}\n\n"
-
-        # Telegram limit is 4096. Use 3500 to leave room for formatting overhead.
-        if len(current_message) + len(job_entry) > 3500:
+            if len(current_message) + len(job_entry) > 3500:
+                _send_telegram(current_message)
+                current_message = f"🌍 *{region_name} (Cont...)*\n\n"
+            
+            current_message += job_entry
+        
+        if current_message:
             _send_telegram(current_message)
-            _send_discord(current_message)
-            current_message = ""
 
-        current_message += job_entry
-
-    if current_message:
-        _send_telegram(current_message)
-        _send_discord(current_message)
+    # Send separate messages per region
+    send_region_summary("United States", us_jobs)
+    send_region_summary("India", india_jobs)
+    send_region_summary("Other Regions", other_jobs)
 
 
 def _send_telegram(message):

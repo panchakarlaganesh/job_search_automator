@@ -11,6 +11,7 @@ class JobStatus(enum.Enum):
     NEW = "new"
     REVIEW = "review"
     APPLIED = "applied"
+    HOLD = "hold"
     REJECTED = "rejected"
     HELP = "help"
 

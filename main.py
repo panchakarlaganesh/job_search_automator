@@ -8,7 +8,7 @@ from src.database import SessionLocal, init_db
 from src.models import Job, JobStatus, RunLog
 from src.scrapers import fetch_all_jobs
 from src.local_scrapers import fetch_local_jobs_async
-from src.evaluator import evaluate_match, tailor_resume, batch_evaluate_matches
+from src.evaluator import evaluate_match, tailor_resume
 from src.resume_manager import get_base_resumes, read_resume, save_tailored_resume
 from src.notifications import notify_application, notify_intervention, notify_new_jobs
 from src.logger import logger
@@ -74,48 +74,49 @@ async def run_automation():
         db.commit()
         logger.info(f"Scrape complete. Found {len(raw_jobs)} jobs, {len(newly_added_jobs)} were newly added.")
 
-        # 3. Automatic Tailoring (NEW: No scoring threshold, tailor everything)
+        # 3. Automatic Scoring (Skip Tailoring during batch to prevent timeouts)
         if newly_added_jobs:
-            logger.info(f"Automatically tailoring resumes for {len(newly_added_jobs)} jobs...")
+            logger.info(f"Processing analysis for {len(newly_added_jobs)} jobs...")
             base_content = read_resume("resumes/base_resume.md")
             
             for i, job_data in enumerate(newly_added_jobs):
                 try:
-                    # Fetch the actual Job object to update path
                     job_obj = db.query(Job).filter(Job.job_id_external == job_data["job_id_external"]).first()
                     if not job_obj: continue
 
-                    logger.info(f"[{i+1}/{len(newly_added_jobs)}] Tailoring for {job_obj.company}...")
+                    logger.info(f"[{i+1}/{len(newly_added_jobs)}] Analyzing for {job_obj.company}...")
                     
-                    # Call the additive tailoring engine
-                    tailored_content = tailor_resume(job_obj.description, base_content)
+                    # A. Calculate Match Score
+                    analysis = evaluate_match(job_obj.description, base_content)
+                    if analysis:
+                        job_obj.match_score = analysis.get("score", 0.0)
+                        job_obj.match_reason = analysis.get("reason", "")
+                        job_obj.tech_stack = json.dumps(analysis.get("breakdown", {}))
                     
-                    if tailored_content and len(tailored_content) > 1000:
-                        pdf_path = save_tailored_resume(job_obj.id, tailored_content)
-                        if pdf_path:
-                            job_obj.tailored_resume_path = pdf_path
-                            db.commit()
+                    db.commit()
                     
                 except Exception as e:
-                    logger.error(f"Failed to auto-tailor job {job_data.get('job_id_external')}: {e}")
+                    logger.error(f"Failed to process job {job_data.get('job_id_external')}: {e}")
+                    db.rollback()
                     continue
 
         # 4. Direct Notifications
         if newly_added_jobs:
-            if last_run and last_run.start_time:
-                # Filter out jobs that might have been posted before the last run but only discovered now
-                # This ensures you don't get re-notified for jobs from the 7-day initial window
-                strictly_new_jobs = [
-                    j for j in newly_added_jobs 
-                    if j.get("posted_date") and j["posted_date"] > last_run.start_time
-                ]
-                # If posted_date is missing or precision is low, we fall back to all newly added
-                if not strictly_new_jobs: strictly_new_jobs = newly_added_jobs
-            else:
-                strictly_new_jobs = newly_added_jobs
+            # Filter strictly by match score > 40% for Telegram alerts
+            high_match_jobs = []
+            for raw_job in newly_added_jobs:
+                # Need to find the DB object to get the calculated score
+                job_obj = db.query(Job).filter(Job.job_id_external == raw_job["job_id_external"]).first()
+                if job_obj and (job_obj.match_score or 0.0) > 0.40:
+                    # Update raw_job with score for notification formatting
+                    raw_job['match_score'] = job_obj.match_score
+                    high_match_jobs.append(raw_job)
 
-            logger.info(f"Sending Telegram summary for {len(strictly_new_jobs)} new jobs...")
-            notify_new_jobs(strictly_new_jobs)
+            if high_match_jobs:
+                logger.info(f"Sending Telegram summary for {len(high_match_jobs)} high-match jobs (>40%)...")
+                notify_new_jobs(high_match_jobs)
+            else:
+                logger.info("No high-match jobs (>40%) to notify.")
         else:
             logger.info("No new jobs to notify.")
 

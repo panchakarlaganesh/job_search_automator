@@ -3,19 +3,19 @@ import json
 import requests
 import re
 import warnings
+import numpy as np
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
 from dotenv import load_dotenv
 from src.logger import logger
-
-# Suppress deprecation warnings from older SDKs if still present in dependencies
-warnings.filterwarnings("ignore", category=FutureWarning, module="google.generativeai")
 
 load_dotenv()
 
 USE_LOCAL_LLM = os.getenv("USE_LOCAL_LLM", "true").lower() == "true"
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434/api/generate")
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5-coder:7b")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "gemma2:2b")
 
-# Try to use the new google-genai SDK if available, fallback to google-generativeai
+# Try to use the new google-genai SDK if available
 try:
     from google import genai
     client = genai.Client(api_key=os.getenv("GEMINI_API_KEY")) if os.getenv("GEMINI_API_KEY") else None
@@ -33,7 +33,6 @@ except ImportError:
 
 def clean_json_response(text):
     if not text: return ""
-    # Remove markdown code blocks if present
     text = re.sub(r'```json\s*', '', text)
     text = re.sub(r'\s*```', '', text)
     match = re.search(r'(\[.*\]|\{.*\})', text, re.DOTALL)
@@ -46,26 +45,18 @@ def call_llm(prompt, json_mode=False):
         if json_mode: payload["format"] = "json"
         try:
             logger.info(f"Ollama: Sending request to {OLLAMA_MODEL}...")
-            # Increased timeout for local generation
             response = requests.post(OLLAMA_URL, json=payload, timeout=300)
             response.raise_for_status()
-            logger.info("Ollama: Request completed successfully.")
             return response.json().get("response", "")
         except Exception as e:
             logger.error(f"Ollama error: {e}")
             return None
     else:
         api_key = os.getenv("GEMINI_API_KEY")
-        if not api_key:
-            logger.error("GEMINI_API_KEY not found. Please set it in your environment or GitHub Secrets.")
-            return None
-
+        if not api_key: return None
         try:
             if HAS_NEW_SDK:
-                response = client.models.generate_content(
-                    model=GEMINI_MODEL_ID,
-                    contents=prompt
-                )
+                response = client.models.generate_content(model=GEMINI_MODEL_ID, contents=prompt)
                 return response.text
             else:
                 response = gemini_model.generate_content(prompt)
@@ -74,30 +65,56 @@ def call_llm(prompt, json_mode=False):
             logger.error(f"Gemini error: {e}")
             return None
 
+def calculate_nlp_similarity(text1, text2):
+    """Calculates TF-IDF cosine similarity between two texts."""
+    try:
+        vectorizer = TfidfVectorizer(stop_words='english')
+        tfidf = vectorizer.fit_transform([text1, text2])
+        return cosine_similarity(tfidf[0:1], tfidf[1:2])[0][0]
+    except Exception as e:
+        logger.warning(f"Similarity calculation failed: {e}")
+        return 0.0
+
 def evaluate_match(job_description, base_resume_content):
+    # 1. Quick NLP Check
+    nlp_score = calculate_nlp_similarity(job_description.lower(), base_resume_content.lower())
+    
+    # 2. Keyword Boost (Candidate is preparing for/has experience in these)
+    prioritized_keywords = ["terraform", "ansible", "aws", "production support", "application support", "github actions"]
+    found_priority = [k for k in prioritized_keywords if k in job_description.lower()]
+    
+    # Boost nlp_score if priority keywords are in JD (0.05 per keyword found)
+    nlp_score += (len(found_priority) * 0.05)
+    nlp_score = min(nlp_score, 1.0)
+
+    # 3. AI Reasoning Pass (Grounded in NLP score)
     prompt = f"""
     You are an ATS Scoring Algorithm. Evaluate the match between the Job Description and the Resume.
     
     --- CANDIDATE EXPERTISE NOTES ---
     - Candidate is a Lead SRE with 10+ years experience.
-    - Treat 'Terraform' and 'Ansible' as direct matches for 'Infrastructure as Code' or 'IaC'.
-    - Treat 'Splunk', 'Grafana', 'Prometheus' as direct matches for 'Observability' and 'Monitoring'.
-    - Treat 'AEM' and 'Alfresco' as enterprise platform experience.
+    - Candidate has EXTENSIVE experience in Production Support and Application Support.
+    - IMPORTANT: Candidate is actively preparing for Terraform, Ansible, AWS, and GitHub Actions. 
+    - TREAT 'Terraform', 'Ansible', 'AWS', 'Production Support', 'Application Support', and 'GitHub Actions' as FULL MATCHES if they appear in the JD.
+    - Treat 'Terraform', 'Ansible' as 'IaC'.
+    - Treat 'Splunk', 'Grafana', 'Prometheus' as 'Observability'.
     
     --- SCORING CRITERIA ---
-    1. **Technical Alignment (50%)**: How many of the JD's required tools are in the Resume?
-    2. **Seniority Match (30%)**: Does the candidate's 'Lead' status match the JD's requirements?
-    3. **Domain Match (20%)**: Does the candidate have experience in the specific industry or scale mentioned?
+    1. **Technical Alignment (50%)**: How many of the JD's tools/roles are in the Resume? (Give full points for Terraform/Ansible/AWS/Production Support/GitHub Actions)
+    2. **Seniority Match (30%)**: Does 'Lead' status match?
+    3. **Domain Match (20%)**: Experience in industry/scale?
+
+    Current NLP Similarity Score: {nlp_score:.2f}
 
     Return a JSON object with:
     - "score": A float (0.0 to 1.0) representing the total match percentage.
     - "breakdown": {{
-        "technical": "Percentage for Tech Alignment",
-        "seniority": "Percentage for Seniority",
-        "domain": "Percentage for Domain/Scale"
+        "technical": "Percentage",
+        "seniority": "Percentage",
+        "domain": "Percentage"
       }}
     - "missing_critical_keywords": ["Tool A", "Skill B"]
-    - "reason": "A 1-sentence explanation of why this score was given."
+    - "reason": "1-sentence explanation."
 
     JOB DESCRIPTION:
     {job_description[:2000]}
@@ -110,165 +127,81 @@ def evaluate_match(job_description, base_resume_content):
         cleaned = clean_json_response(response_text)
         return json.loads(cleaned)
     except Exception as e:
-        logger.error(f"Failed to parse evaluation response: {e}")
-        return {"score": 0.0, "reason": "Error parsing LLM response", "breakdown": {}}
-
-def batch_evaluate_matches(jobs_data, base_resume_content):
-    if not jobs_data: return []
-    
-    # If there are many jobs, we might still want to do individual or smaller batches
-    # For now, let's implement a simple batch prompt
-    jobs_str = ""
-    for job in jobs_data:
-        jobs_str += f"--- JOB (ID: {job['id']}) ---\nTitle: {job['title']}\nDescription: {job['description'][:1000]}\n\n"
-
-    prompt = f"""
-    Evaluate the match between the candidate resume and these jobs.
-    
-    Resume:
-    {base_resume_content[:2000]}
-    
-    Jobs:
-    {jobs_str}
-    
-    CRITICAL: Return ONLY a valid JSON list of objects. Do not include any other text, markdown blocks, or explanations.
-    Return a JSON list of objects, each containing:
-    - 'id': The JOB ID provided (as a number).
-    - 'score': A float between 0 and 1.
-    - 'reason': A brief explanation.
-    - 'seniority': One of [Entry, Junior, Mid, Senior, Lead, Staff, Principal, Manager].
-    - 'tech_stack': A list of top 5 technologies mentioned.
-    - 'salary_estimate': Any salary info mentioned (or "Not specified").
-
-    Example format:
-    [
-      {{
-        "id": 1, 
-        "score": 0.8, 
-        "reason": "Matches core skills.", 
-        "seniority": "Senior", 
-        "tech_stack": ["AWS", "Kubernetes", "Python"], 
-        "salary_estimate": "$150k - $200k"
-      }}
-    ]
-
-    """
-    
-    response_text = call_llm(prompt, json_mode=True)
-
-    try:
-        cleaned = clean_json_response(response_text)
-        data = json.loads(cleaned)
-        return data if isinstance(data, list) else [data]
-    except Exception as e:
-        logger.error(f"Failed to parse batch evaluation response: {e}")
-        logger.debug(f"Raw response: {response_text}")
-        return []
+        # Fallback to pure NLP if AI fails
+        return {
+            "score": nlp_score, 
+            "reason": "NLP-based estimation", 
+            "breakdown": {"technical": f"{int(nlp_score*100)}%"}
+        }
 
 def tailor_resume(job_description, base_resume_content):
-    """
-    Advanced additive tailoring: Asks AI for specific additions and merges them 
-    with the full base resume to prevent content loss.
-    """
     prompt = f"""
-    You are an AI-powered ATS Optimization Expert. Your mission is to provide SPECIFIC ADDITIONS for a resume to match a job description.
+    You are an AI-powered ATS Optimization Expert. Provide SPECIFIC ADDITIONS for a resume.
     
-    --- BASE RESUME CONTENT ---
-    {base_resume_content[:4000]}
+    --- BASE RESUME ---
+    {base_resume_content[:3500]}
     
-    --- TARGET JOB DESCRIPTION ---
-    {job_description[:3000]}
+    --- JOB DESCRIPTION ---
+    {job_description[:2500]}
     
-    --- TASK ---
-    Identify missing keywords and responsibilities. Provide ONLY the new content to be added.
+    TASK: Identify missing keywords and responsibilities. Provide ONLY new content.
     
-    CRITICAL RULES:
+    RULES:
     1. Do not rewrite existing experience.
-    2. Focus additions on the "Lead SRE at Apple" role.
-    3. Use categories: "Languages & Scripts", "Databases", "Tools".
-    4. Provide 2-3 high-impact bullets that use tools/skills from the JD not already in the resume.
+    2. Add 2-3 NEW bullets to "Lead SRE at Apple" role.
+    3. Formula: [Action] + [JD Tech] + [Result].
     
     Return a JSON object with:
-    - "target_job_title": "The specific job title from the JD"
+    - "target_job_title": "Job Title"
     - "new_apple_bullets": ["Bullet 1", "Bullet 2"]
-    - "reordered_skills": {{
-        "languages": "Java, JavaScript, Bash, Python, SQL...",
-        "databases": "PostgreSQL, SQL, MongoDB...",
-        "tools": "ServiceNow, Kubernetes, AWS..."
-      }}
+    - "reordered_skills": {{"languages": "...", "databases": "...", "tools": "..."}}
     """
     
     response_text = call_llm(prompt, json_mode=True)
-    logger.info(f"AI Raw Response: {response_text[:500]}...")
     try:
         cleaned = clean_json_response(response_text)
         additions = json.loads(cleaned)
-        logger.info(f"Extracted Additions: {additions.keys()}")
         return merge_additions_to_resume(base_resume_content, additions)
     except Exception as e:
-        logger.error(f"Failed to parse additions JSON: {e}")
+        logger.error(f"Tailoring failed: {e}")
         return base_resume_content
 
 def merge_additions_to_resume(base_content, additions):
-    """
-    Surgically merges AI additions into the base markdown.
-    Guarantees 100% preservation of existing content while adding new points.
-    """
     try:
         lines = base_content.split('\n')
         new_lines = []
-        
         target_title = additions.get("target_job_title", "").strip()
         apple_bullets = additions.get("new_apple_bullets", [])
         skills_additions = additions.get("reordered_skills", {})
+        found_apple = False
         
-        found_apple_role = False
-        
-        def clean_list(s):
-            return [x.strip() for x in s.replace('*', '').split(',') if x.strip()]
+        def clean_list(s): return [x.strip() for x in s.replace('*', '').split(',') if x.strip()]
 
         for line in lines:
             stripped = line.strip()
-
-            # 1. Update/Add Target Title (Keep original Lead SRE but add JD title)
             if stripped == "**Lead SRE**" and target_title:
-                new_lines.append(f"**Lead SRE | {target_title}**")
-                target_title = None
+                new_lines.append(f"**Lead SRE | {target_title}**"); target_title = None; continue
+            if "Apple" in line and ("Lead SRE" in line or "SRE" in line) and not found_apple:
+                found_apple = True; new_lines.append(line)
+                for b in apple_bullets:
+                    bullet = b.strip().lstrip('-').strip()
+                    if bullet: new_lines.append(f"- {bullet}")
                 continue
-                
-            # 2. Add New Bullets to Apple Experience
-            if "Apple" in line and ("Lead SRE" in line or "SRE" in line) and not found_apple_role:
-                found_apple_role = True
-                new_lines.append(line)
-                for bullet in apple_bullets:
-                    b = bullet.strip().lstrip('-').strip()
-                    if b: new_lines.append(f"- {b}")
-                continue
-            
-            # 3. Add to Technical Skills (Additive Merging)
             if "Languages & Scripts:" in line and skills_additions.get("languages"):
                 orig = clean_list(line.split(":", 1)[1])
                 new_items = clean_list(skills_additions["languages"])
-                merged = ", ".join(list(dict.fromkeys(new_items + orig))) # Deduplicate, keeping new first
-                new_lines.append(f"- **Languages & Scripts:** {merged}")
-                continue
+                merged = ", ".join(list(dict.fromkeys(new_items + orig)))
+                new_lines.append(f"- **Languages & Scripts:** {merged}"); continue
             if "Databases:" in line and skills_additions.get("databases"):
                 orig = clean_list(line.split(":", 1)[1])
                 new_items = clean_list(skills_additions["databases"])
                 merged = ", ".join(list(dict.fromkeys(new_items + orig)))
-                new_lines.append(f"- **Databases:** {merged}")
-                continue
+                new_lines.append(f"- **Databases:** {merged}"); continue
             if "Tools:" in line and skills_additions.get("tools"):
                 orig = clean_list(line.split(":", 1)[1])
                 new_items = clean_list(skills_additions["tools"])
                 merged = ", ".join(list(dict.fromkeys(new_items + orig)))
-                new_lines.append(f"- **Tools:** {merged}")
-                continue
-                
+                new_lines.append(f"- **Tools:** {merged}"); continue
             new_lines.append(line)
-            
-        logger.info(f"Merge successful. Apple role found: {found_apple_role}. Added {len(apple_bullets)} new points.")
         return '\n'.join(new_lines)
-    except Exception as e:
-        logger.error(f"Merge logic failed: {e}")
-        return base_content
+    except: return base_content

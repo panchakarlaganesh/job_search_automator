@@ -18,3 +18,5 @@ reportlab
 pypdf2
 GitPython
 python-docx
+scikit-learn
+sentence-transformers

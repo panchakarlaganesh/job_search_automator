@@ -6,22 +6,36 @@
 
 **Lead SRE** | Apple, Austin | Apr 2015 – Present
 - Automated monitoring using Prober and issue assignment in ServiceNow with notification using AI.
-- Diagnosed and resolved production-critical incidents through code debugging and root-cause analysis, leveraging Splunk logs and system metrics.
+- Diagnosed and resolved production-critical incidents through code debugging and root-cause analysis, leveraging Splunk logs and system metrics in high-stakes environments.
 - Served as a trusted advisor and SME, owning technical resolution of complex system bottlenecks and integrating AI-powered tools to automate root-cause analysis workflows.
 - Led a team of 10 SREs in designing and implementing automated tools that reduced response time by 45%.
 - Performed advanced troubleshooting, analyzing heap and thread dumps to diagnose and resolve Java JDK memory management problems across the technology stack.
-- Monitored memory utilization across Kubernetes clusters, fine-tuning resource limits to ensure high availability and 99% uptime.
+- Monitored memory utilization across Kubernetes clusters, fine-tuning resource limits to ensure high availability and 99.99% uptime for retail services.
 - Optimized SQL performance by analyzing Explain Plans for complex queries and migrating data structures to PostgreSQL to resolve back-end bottlenecks.
 - Collaborated with TPM to gather requirements, designed an AEM upgrade strategy, and led the team through successful upgrades and custom feature integration with templates. Proposed and integrated DR failover for Adobe, including storage solutions.
 - Managed AWS Services (EC2, S3) and established monitoring using Lambda and Cloudwatch, reducing monitoring efforts by 40%.
-- Developed multiple core libraries, tools, and scripts for automating CI/CD deployments (similar to GitOps), reducing deployment time by 60%.
+- Developed multiple core libraries, tools, and scripts for automating CI/CD deployments (GitOps), implementing rollback capabilities and environment promotion strategies.
 - Developed Ansible/Bash automation scripts for remediating security vulnerabilities, performing DB upgrades, and renewing certificates, reducing repetitive workload by 55%.
 - Built Splunk dashboards for monitoring application metrics and traffic, identifying performance bottlenecks.
 - Utilized ServiceNow to manage and resolve production incidents impacting applications deployed on Kubernetes clusters, ensuring high availability and performance.
 - Leveraged ServiceNow Architecture and ITIL frameworks to streamline incident management, maintaining a professional demeanor while resolving high-pressure user issues.
-- Implemented Open Telemetry, Grafana, Prober, and CatchPoint for monitoring application statistics and alert management, achieving 99% uptime.
+- Implemented Open Telemetry, Grafana, Prober, and CatchPoint for monitoring application statistics and alert management, achieving 99.99% uptime.
 - Migrated AEM from versions 6.0 through 6.5, resulting in a 15% increase in system performance and a 20% decrease in page load time.
 - Developed custom diagnostic tools using Java and JavaScript for investigating and resolving complex production issues.
+
+### PROJECTS
+
+**Job Search Automator (LLM-Powered)**
+- Designed and implemented an automated job application system using Python, Playwright, and LLMs (OpenAI/Gemini).
+- Developed multi-source scraping for LinkedIn and Dice, achieving automated evaluation of JDs against resumes with >60% match accuracy.
+- Built a Streamlit dashboard for tracking applications, match scores, and manual interventions.
+
+**Model Context Protocol (MCP) Servers**
+- Developed a suite of MCP servers (Dice, Indeed, JobSpy) using Node.js, TypeScript, and Python.
+- Leveraged Playwright and Crawlee for stealthy scraping and @modelcontextprotocol/sdk for seamless integration with AI agents.
+
+**Token & Metric Monitor**
+- Built a tool using Google Cloud APIs to monitor and verify service metrics and token usage, ensuring cost-efficiency in LLM-driven workflows.
 
 **SRE** | Apple, India | Sep 2014 – Mar 2015
 - Enhancing and supporting the applications such as InQuira, AEM, Oracle Search management.
