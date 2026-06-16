@@ -2,7 +2,7 @@ name: Scheduled Job Search
 
 on:
   schedule:
-    - cron: '0 10 * * *'  # Runs daily at 10:00 AM UTC (3:00 AM PDT)
+    - cron: '0 8 * * *'  # Runs daily at 08:00 AM UTC (03:00 AM CT)
   workflow_dispatch:      # Allows manual trigger
 
 jobs:
@@ -29,8 +29,8 @@ jobs:
 
       - name: Configure Git
         run: |
-          git config --global user.name 'github-actions[bot]'
-          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+          git config --global user.name 'Job Search Automator Bot'
+          git config --global user.email 'bot@jobsearch.internal'
 
       - name: Run Automator
         env:
