@@ -147,6 +147,17 @@ async def scrape_linkedin(keywords, locations, max_items, days_back):
                     logger.info(f"LinkedIn: Searching {kw} in {loc}...")
                     await page.goto(url, wait_until="load")
                     await asyncio.sleep(3)
+                    
+                    # --- SCROLL LOOP TO LOAD MORE JOBS ---
+                    last_count = 0
+                    for _ in range(5): # Scroll 5 times to load more content
+                        await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                        await asyncio.sleep(2)
+                        current_count = len(await page.query_selector_all(".base-card, .job-search-card"))
+                        if current_count == last_count: break
+                        last_count = current_count
+                        logger.info(f"LinkedIn: Found {current_count} jobs so far...")
+
                     cards = await page.query_selector_all(".base-card, .job-search-card")
                     for card in cards[:max_items]:
                         title_el = await card.query_selector(".base-search-card__title, h3")
