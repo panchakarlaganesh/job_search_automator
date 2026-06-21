@@ -2,7 +2,7 @@ venv/
 __pycache__/
 *.pyc
 .env
-data/*.db
+# data/*.db  # Removed: DB must persist across CI runs
 logs/*.log
 logs/
 resumes/tailored/

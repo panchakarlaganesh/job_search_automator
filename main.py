@@ -47,9 +47,13 @@ async def run_automation():
 
         logger.info(f"Starting job scrape for last {days_back} days...")
         
-        # We'll use local scrapers primarily for this test phase
         try:
             raw_jobs = await fetch_local_jobs_async(keywords, locations, days_back, max_items)
+            apify_token = os.getenv("APIFY_API_TOKEN") or os.getenv("APIFY_TOKEN")
+            if apify_token:
+                logger.info("APIFY_API_TOKEN found. Fetching high-quality LinkedIn jobs via Apify...")
+                apify_jobs = await asyncio.to_thread(fetch_all_jobs, keywords, locations, max_items, days_back)
+                raw_jobs.extend(apify_jobs)
         except Exception as e:
             logger.error(f"Scraper failed: {e}")
             raw_jobs = []

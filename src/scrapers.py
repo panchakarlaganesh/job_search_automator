@@ -19,26 +19,27 @@ def fetch_all_jobs(keywords, locations, max_items=150, days_back=3):
     seconds_back = days_back * 86400
     published_at = f"r{seconds_back}"
     
-    # Convert keywords list to comma-separated string for Apify
-    keyword_str = ", ".join(keywords) if isinstance(keywords, list) else str(keywords)
+    # Convert keywords to list if they aren't already, as cheap_scraper expects an array
+    keyword_list = keywords if isinstance(keywords, list) else [keywords]
 
     for location in locations:
         run_input = {
-            "keyword": keyword_str,
+            "keyword": keyword_list,
             "location": location,
-            "maxItems": max_items,
+            "maxItems": max(150, max_items),  # cheap_scraper requires maxItems >= 150
             "publishedAt": published_at,
             "saveOnlyUniqueItems": True,
             "enrichCompanyData": False
         }
 
         try:
-            logger.info(f"Running Apify LinkedIn scraper for keywords {keyword_str} in {location}...")
+            logger.info(f"Running Apify LinkedIn scraper for keywords {keyword_list} in {location}...")
             # Run the Actor and wait for it to finish
             run = client.actor("cheap_scraper/linkedin-job-scraper").call(run_input=run_input)
 
             # Fetch results from the run's dataset
-            for item in client.dataset(run.defaultDatasetId).iterate_items():
+            dataset_id = run.get("defaultDatasetId") if isinstance(run, dict) else getattr(run, "default_dataset_id", None)
+            for item in client.dataset(dataset_id).iterate_items():
                 # Map Apify item to our Job model format
                 job_id = str(item.get("id", item.get("jobId", "")))
                 job_url = item.get("url")

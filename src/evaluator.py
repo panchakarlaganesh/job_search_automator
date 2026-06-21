@@ -19,14 +19,14 @@ OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "gemma2:2b")
 try:
     from google import genai
     client = genai.Client(api_key=os.getenv("GEMINI_API_KEY")) if os.getenv("GEMINI_API_KEY") else None
-    GEMINI_MODEL_ID = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
+    GEMINI_MODEL_ID = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
     HAS_NEW_SDK = True
 except ImportError:
     import google.generativeai as old_genai
     api_key = os.getenv("GEMINI_API_KEY")
     if api_key:
         old_genai.configure(api_key=api_key)
-        gemini_model = old_genai.GenerativeModel(os.getenv("GEMINI_MODEL", "gemini-1.5-flash"))
+        gemini_model = old_genai.GenerativeModel(os.getenv("GEMINI_MODEL", "gemini-2.5-flash"))
     else:
         gemini_model = None
     HAS_NEW_SDK = False
@@ -117,10 +117,10 @@ def evaluate_match(job_description, base_resume_content):
     - "reason": "1-sentence explanation."
 
     JOB DESCRIPTION:
-    {job_description[:2000]}
+    {job_description[:15000]}
     
     RESUME:
-    {base_resume_content[:2000]}
+    {base_resume_content[:10000]}
     """
     response_text = call_llm(prompt, json_mode=True)
     try:
@@ -139,10 +139,10 @@ def tailor_resume(job_description, base_resume_content):
     You are an AI-powered ATS Optimization Expert. Provide SPECIFIC ADDITIONS for a resume.
     
     --- BASE RESUME ---
-    {base_resume_content[:3500]}
+    {base_resume_content[:10000]}
     
     --- JOB DESCRIPTION ---
-    {job_description[:2500]}
+    {job_description[:15000]}
     
     TASK: Identify missing keywords and responsibilities. Provide ONLY new content.
     

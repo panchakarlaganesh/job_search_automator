@@ -20,3 +20,6 @@ GitPython
 python-docx
 scikit-learn
 sentence-transformers
+pyarrow
+fsspec
+numpy

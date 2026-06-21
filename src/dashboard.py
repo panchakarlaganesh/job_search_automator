@@ -193,6 +193,30 @@ Match Score: {int((job.match_score or 0) * 100)}%
                                 st.error(f"❌ Error: {str(e)}")
 
                         st.write(f"[Job Link]({job.url})")
+                        
+                        # --- AUTONOMOUS AUTO-APPLY ---
+                        if st.button("🚀 Autonomous Auto-Apply", key=f"auto_apply_{job.id}"):
+                            with st.spinner("Launching browser-use AI agent to complete the application..."):
+                                try:
+                                    import asyncio
+                                    from src.applier import get_applier
+                                    from src.resume_manager import select_best_base_resume, read_resume
+                                    
+                                    applier = get_applier(job.url)
+                                    base_resume_path = select_best_base_resume(job.title, job.description) or "resumes/base_resume.md"
+                                    base_content = read_resume(base_resume_path) if os.path.exists(base_resume_path) else ""
+                                    
+                                    success = asyncio.run(applier.apply(job, base_resume_path, base_content))
+                                    
+                                    if success:
+                                        job.status = JobStatus.APPLIED
+                                        db.commit()
+                                        st.success("✅ Application submitted successfully!")
+                                        st.rerun()
+                                    else:
+                                        st.error("❌ Application failed.")
+                                except Exception as ae:
+                                    st.error(f"❌ Auto-apply failed: {str(ae)}")
 
                     with col2:
                         new_status = st.selectbox("Status", [s.value for s in JobStatus], 
