@@ -48,12 +48,28 @@ async def run_automation():
         logger.info(f"Starting job scrape for last {days_back} days...")
         
         try:
-            raw_jobs = await fetch_local_jobs_async(keywords, locations, days_back, max_items)
+            raw_jobs = []
+            is_ci = bool(os.getenv("GITHUB_ACTIONS"))
             apify_token = os.getenv("APIFY_API_TOKEN") or os.getenv("APIFY_TOKEN")
+            
+            # On CI: Apify first (returns real job descriptions), local scrapers as fallback
+            # On local: local scrapers first, Apify as supplement
             if apify_token:
-                logger.info("APIFY_API_TOKEN found. Fetching high-quality LinkedIn jobs via Apify...")
+                logger.info("Fetching LinkedIn jobs via Apify (returns full descriptions)...")
                 apify_jobs = await asyncio.to_thread(fetch_all_jobs, keywords, locations, max_items, days_back)
                 raw_jobs.extend(apify_jobs)
+                logger.info(f"Apify returned {len(apify_jobs)} jobs.")
+            
+            if not is_ci:
+                logger.info("Running local Playwright scrapers...")
+                local_jobs = await fetch_local_jobs_async(keywords, locations, days_back, max_items)
+                raw_jobs.extend(local_jobs)
+                logger.info(f"Local scrapers returned {len(local_jobs)} jobs.")
+            elif not apify_token:
+                logger.warning("Running on CI without APIFY_API_TOKEN! Local scrapers have limited descriptions.")
+                local_jobs = await fetch_local_jobs_async(keywords, locations, days_back, max_items)
+                raw_jobs.extend(local_jobs)
+                
         except Exception as e:
             logger.error(f"Scraper failed: {e}")
             raw_jobs = []
@@ -80,15 +96,21 @@ async def run_automation():
 
         # 3. Automatic Scoring (Skip Tailoring during batch to prevent timeouts)
         if newly_added_jobs:
-            logger.info(f"Processing analysis for {len(newly_added_jobs)} jobs...")
+            # Filter to only score jobs with real descriptions (not placeholders)
+            scoreable_jobs = [j for j in newly_added_jobs if len(j.get("description", "") or "") > 200]
+            skipped = len(newly_added_jobs) - len(scoreable_jobs)
+            if skipped:
+                logger.info(f"Skipping {skipped} jobs with placeholder/stub descriptions (< 200 chars).")
+            
+            logger.info(f"Processing analysis for {len(scoreable_jobs)} jobs with real descriptions...")
             base_content = read_resume("resumes/base_resume.md")
             
-            for i, job_data in enumerate(newly_added_jobs):
+            for i, job_data in enumerate(scoreable_jobs):
                 try:
                     job_obj = db.query(Job).filter(Job.job_id_external == job_data["job_id_external"]).first()
                     if not job_obj: continue
 
-                    logger.info(f"[{i+1}/{len(newly_added_jobs)}] Analyzing for {job_obj.company}...")
+                    logger.info(f"[{i+1}/{len(scoreable_jobs)}] Analyzing for {job_obj.company}...")
                     
                     # A. Calculate Match Score
                     analysis = evaluate_match(job_obj.description, base_content)
@@ -96,6 +118,7 @@ async def run_automation():
                         job_obj.match_score = analysis.get("score", 0.0)
                         job_obj.match_reason = analysis.get("reason", "")
                         job_obj.tech_stack = json.dumps(analysis.get("breakdown", {}))
+                    
                     
                     db.commit()
                     
