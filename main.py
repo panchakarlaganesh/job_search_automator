@@ -49,26 +49,20 @@ async def run_automation():
         
         try:
             raw_jobs = []
-            is_ci = bool(os.getenv("GITHUB_ACTIONS"))
             apify_token = os.getenv("APIFY_API_TOKEN") or os.getenv("APIFY_TOKEN")
             
-            # On CI: Apify first (returns real job descriptions), local scrapers as fallback
-            # On local: local scrapers first, Apify as supplement
+            # 1. Fetch via Apify first (to secure real descriptions)
             if apify_token:
                 logger.info("Fetching LinkedIn jobs via Apify (returns full descriptions)...")
                 apify_jobs = await asyncio.to_thread(fetch_all_jobs, keywords, locations, max_items, days_back)
                 raw_jobs.extend(apify_jobs)
                 logger.info(f"Apify returned {len(apify_jobs)} jobs.")
             
-            if not is_ci:
-                logger.info("Running local Playwright scrapers...")
-                local_jobs = await fetch_local_jobs_async(keywords, locations, days_back, max_items)
-                raw_jobs.extend(local_jobs)
-                logger.info(f"Local scrapers returned {len(local_jobs)} jobs.")
-            elif not apify_token:
-                logger.warning("Running on CI without APIFY_API_TOKEN! Local scrapers have limited descriptions.")
-                local_jobs = await fetch_local_jobs_async(keywords, locations, days_back, max_items)
-                raw_jobs.extend(local_jobs)
+            # 2. Fetch via local scrapers (to maximize coverage of job titles and URLs)
+            logger.info("Running local Playwright scrapers...")
+            local_jobs = await fetch_local_jobs_async(keywords, locations, days_back, max_items)
+            raw_jobs.extend(local_jobs)
+            logger.info(f"Local scrapers returned {len(local_jobs)} jobs.")
                 
         except Exception as e:
             logger.error(f"Scraper failed: {e}")
@@ -86,13 +80,21 @@ async def run_automation():
                     db.add(job)
                     db.flush()
                     newly_added_jobs.append(raw_job)
+                else:
+                    # If job exists but has a placeholder/stub description, and we just fetched a real description, update it!
+                    if (not existing.description or len(existing.description) < 200) and (raw_job.get("description") and len(raw_job["description"]) > 200):
+                        logger.info(f"Enriching description for existing job: {existing.title} @ {existing.company}")
+                        existing.description = raw_job["description"]
+                        db.flush()
+                        # Also add to newly_added_jobs so it gets scored in the next step
+                        newly_added_jobs.append(raw_job)
             except Exception as e:
                 logger.warning(f"Failed to ingest job {raw_job.get('job_id_external')}: {e}")
                 db.rollback()
                 continue
         
         db.commit()
-        logger.info(f"Scrape complete. Found {len(raw_jobs)} jobs, {len(newly_added_jobs)} were newly added.")
+        logger.info(f"Scrape complete. Found {len(raw_jobs)} jobs, {len(newly_added_jobs)} were newly added or enriched.")
 
         # 2b. Open-Jobs Importer
         try:
