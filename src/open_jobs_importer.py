@@ -8,7 +8,7 @@ from src.database import SessionLocal, init_db
 from src.models import Job, JobStatus
 from src.logger import logger
 from src.job_utils import stable_job_id
-from src.evaluator import evaluate_match
+from src.evaluator import evaluate_match, call_llm, clean_json_response
 
 COLS = ["id", "company", "company_name", "title", "url", "function", "sub_function", "level",
         "work_mode", "is_remote", "remote_scope", "country_code", "salary_min_k", "salary_max_k",
@@ -24,42 +24,22 @@ def _source(path):
         return fsspec.open(path, "rb").open()
     return path
 
-def ask_gemini(resume, a, b, key, model="gemini-2.5-flash"):
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}"
+def compare_jobs_llm(resume, a, b):
     user_prompt = f"RESUME:\n{resume}\n\n=== JOB A: {a['title']} @ {a['company']} ===\n{a['description'][:4000]}\n\n=== JOB B: {b['title']} @ {b['company']} ===\n{b['description'][:4000]}"
     full_text = f"{PROMPT}\n\n{user_prompt}"
-    body = {
-        "contents": [{"parts": [{"text": full_text}]}],
-        "generationConfig": {
-            "responseMimeType": "application/json",
-            "responseSchema": {
-                "type": "OBJECT",
-                "properties": {
-                    "winner": {
-                        "type": "STRING",
-                        "enum": ["A", "B"]
-                    }
-                },
-                "required": ["winner"]
-            }
-        }
-    }
-    data = json.dumps(body).encode()
-    time.sleep(4.5)  # 15 RPM rate limiting for free tier
-    for i in range(5):
-        try:
-            req = urllib.request.Request(url, data=data, method="POST",
-                headers={"Content-Type": "application/json"})
-            with urllib.request.urlopen(req, timeout=90) as r:
-                res = json.load(r)
-                txt = res["candidates"][0]["content"]["parts"][0]["text"]
-                return json.loads(txt.strip())["winner"]
-        except Exception as e:
-            if i < 4:
-                time.sleep(min(2 ** i, 30))
-                continue
-            logger.error(f"Gemini API comparison failed: {e}")
-            raise
+    
+    # Simple rate-limiting sleep to prevent hitting API limits
+    time.sleep(2.0)
+    
+    response = call_llm(full_text, json_mode=True)
+    if not response:
+        return "A"
+    try:
+        cleaned = clean_json_response(response)
+        return json.loads(cleaned).get("winner", "A")
+    except Exception as e:
+        logger.warning(f"Failed to parse winner: {e}")
+        return "A"
 
 async def import_open_jobs():
     init_db()
@@ -148,20 +128,23 @@ async def import_open_jobs():
         if not candidates:
             return
             
-        # Top 10 scoring via Gemini
+        # Top 10 scoring via LLM
         top_candidates = candidates[:10]
         gemini_key = os.environ.get("GEMINI_API_KEY", "").strip()
-        if not gemini_key:
+        sarvam_key = os.environ.get("SARVAM_API_KEY", "").strip()
+        if not gemini_key and not sarvam_key:
             # Fallback to loading from .env
             from dotenv import dotenv_values
             env_vals = dotenv_values(".env")
             gemini_key = env_vals.get("GEMINI_API_KEY", "").strip()
+            sarvam_key = env_vals.get("SARVAM_API_KEY", "").strip()
             
-        if not gemini_key:
-            logger.error("No GEMINI_API_KEY found.")
+        use_local = os.environ.get("USE_LOCAL_LLM", "true").lower() == "true"
+        if not gemini_key and not sarvam_key and not use_local:
+            logger.error("No LLM configuration found (GEMINI_API_KEY, SARVAM_API_KEY, or USE_LOCAL_LLM).")
             return
 
-        logger.info(f"Ranking top {len(top_candidates)} jobs with Gemini...")
+        logger.info(f"Ranking top {len(top_candidates)} jobs with LLM...")
         
         # Simple selection sort to order them
         ranked_jobs = []
@@ -171,7 +154,7 @@ async def import_open_jobs():
             if not remaining: break
             best = remaining[0]
             for candidate in remaining[1:]:
-                winner = ask_gemini(resume, best, candidate, gemini_key)
+                winner = compare_jobs_llm(resume, best, candidate)
                 if winner == "B":
                     best = candidate
             ranked_jobs.append(best)

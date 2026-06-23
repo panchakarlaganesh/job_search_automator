@@ -40,6 +40,34 @@ def clean_json_response(text):
     return text
 
 def call_llm(prompt, json_mode=False):
+    sarvam_key = os.getenv("SARVAM_API_KEY")
+    if sarvam_key:
+        model = os.getenv("SARVAM_MODEL", "sarvam-2b")
+        url = "https://api.sarvam.ai/v1/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {sarvam_key.strip()}",
+            "Content-Type": "application/json"
+        }
+        payload = {
+            "model": model,
+            "messages": [
+                {"role": "user", "content": prompt}
+            ],
+            "temperature": 0.1
+        }
+        if json_mode:
+            payload["response_format"] = {"type": "json_object"}
+            
+        try:
+            logger.info(f"Sarvam AI: Sending request to {model}...")
+            response = requests.post(url, json=payload, headers=headers, timeout=120)
+            response.raise_for_status()
+            res_json = response.json()
+            return res_json["choices"][0]["message"]["content"]
+        except Exception as e:
+            logger.error(f"Sarvam AI error: {e}")
+            # Fall back to Gemini/Ollama if Sarvam fails
+
     if USE_LOCAL_LLM:
         payload = {"model": OLLAMA_MODEL, "prompt": prompt, "stream": False}
         if json_mode: payload["format"] = "json"
