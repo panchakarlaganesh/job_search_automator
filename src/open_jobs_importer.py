@@ -181,6 +181,7 @@ async def import_open_jobs():
         
         # Ingest into SQLite database
         newly_added = 0
+        added_jobs = []
         for idx, job_data in enumerate(ranked_jobs):
             ext_id = stable_job_id("open-jobs", job_data["url"], job_data["title"], job_data["company"])
             
@@ -219,13 +220,25 @@ async def import_open_jobs():
                 )
                 db.add(job)
                 newly_added += 1
+                added_jobs.append({
+                    "job_id_external": ext_id,
+                    "title": job_data["title"],
+                    "company": job_data["company"],
+                    "location": job_data["work_mode"] or "Remote",
+                    "description": job_data["description"],
+                    "url": job_data["url"],
+                    "source": "open-jobs",
+                    "match_score": score
+                })
                 
         db.commit()
         logger.info(f"Successfully imported {newly_added} open-jobs matches into SQLite database.")
+        return added_jobs
         
     except Exception as e:
         logger.error(f"Failed open-jobs import: {e}")
         db.rollback()
+        return []
     finally:
         db.close()
 

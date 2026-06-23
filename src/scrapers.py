@@ -15,9 +15,16 @@ def fetch_all_jobs(keywords, locations, max_items=150, days_back=3):
     client = ApifyClient(api_token)
     all_jobs = []
 
-    # Map days_back to Apify's publishedAt format (e.g., r86400 for 1 day)
-    seconds_back = days_back * 86400
-    published_at = f"r{seconds_back}"
+    # Map days_back to Apify's allowed publishedAt values
+    # Allowed: "" (any), "r86400" (1 day), "r604800" (7 days), "r2592000" (30 days)
+    if days_back <= 1:
+        published_at = "r86400"
+    elif days_back <= 7:
+        published_at = "r604800"
+    elif days_back <= 30:
+        published_at = "r2592000"
+    else:
+        published_at = ""
     
     # Convert keywords to list if they aren't already, as cheap_scraper expects an array
     keyword_list = keywords if isinstance(keywords, list) else [keywords]

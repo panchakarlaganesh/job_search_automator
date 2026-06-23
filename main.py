@@ -94,6 +94,17 @@ async def run_automation():
         db.commit()
         logger.info(f"Scrape complete. Found {len(raw_jobs)} jobs, {len(newly_added_jobs)} were newly added.")
 
+        # 2b. Open-Jobs Importer
+        try:
+            logger.info("Running open-jobs importer...")
+            from src.open_jobs_importer import import_open_jobs
+            open_jobs = await import_open_jobs()
+            if open_jobs:
+                newly_added_jobs.extend(open_jobs)
+                logger.info(f"Open-jobs importer added {len(open_jobs)} new jobs.")
+        except Exception as e:
+            logger.error(f"Open-jobs importer failed: {e}")
+
         # 3. Automatic Scoring (Skip Tailoring during batch to prevent timeouts)
         if newly_added_jobs:
             # Filter to only score jobs with real descriptions (not placeholders)
@@ -109,6 +120,10 @@ async def run_automation():
                 try:
                     job_obj = db.query(Job).filter(Job.job_id_external == job_data["job_id_external"]).first()
                     if not job_obj: continue
+
+                    if job_obj.match_score is not None and job_obj.match_score > 0.0:
+                        logger.info(f"[{i+1}/{len(scoreable_jobs)}] Skipping scoring for {job_obj.company} (already scored: {job_obj.match_score})")
+                        continue
 
                     logger.info(f"[{i+1}/{len(scoreable_jobs)}] Analyzing for {job_obj.company}...")
                     
