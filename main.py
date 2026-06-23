@@ -144,21 +144,26 @@ async def run_automation():
 
         # 4. Direct Notifications
         if newly_added_jobs:
-            # Filter strictly by match score > 40% for Telegram alerts
+            # Filter by match score threshold (default to 10%)
+            try:
+                threshold = float(os.getenv("CHECK_MATCH_THRESHOLD", "0.10"))
+            except ValueError:
+                threshold = 0.10
+                
             high_match_jobs = []
             for raw_job in newly_added_jobs:
                 # Need to find the DB object to get the calculated score
                 job_obj = db.query(Job).filter(Job.job_id_external == raw_job["job_id_external"]).first()
-                if job_obj and (job_obj.match_score or 0.0) > 0.40:
+                if job_obj and (job_obj.match_score or 0.0) > threshold:
                     # Update raw_job with score for notification formatting
                     raw_job['match_score'] = job_obj.match_score
                     high_match_jobs.append(raw_job)
 
             if high_match_jobs:
-                logger.info(f"Sending Telegram summary for {len(high_match_jobs)} high-match jobs (>40%)...")
+                logger.info(f"Sending Telegram summary for {len(high_match_jobs)} high-match jobs (>{int(threshold*100)}%)...")
                 notify_new_jobs(high_match_jobs)
             else:
-                logger.info("No high-match jobs (>40%) to notify.")
+                logger.info(f"No high-match jobs (>{int(threshold*100)}%) to notify.")
         else:
             logger.info("No new jobs to notify.")
 

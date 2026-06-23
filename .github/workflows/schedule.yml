@@ -48,6 +48,7 @@ jobs:
           PYTHONPATH: .
           AUTO_APPLY_ENABLED: false
           USE_LOCAL_LLM: false
+          CHECK_MATCH_THRESHOLD: 0.10
         run: python main.py
 
       - name: Push changes
