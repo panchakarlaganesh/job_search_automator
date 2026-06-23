@@ -71,8 +71,14 @@ async def import_open_jobs():
         os.makedirs(os.path.dirname(local_path), exist_ok=True)
         
         logger.info(f"Downloading remote Parquet from {parquet_url} to {local_path}...")
-        import urllib.request
-        urllib.request.urlretrieve(parquet_url, local_path)
+        import requests
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
+        response = requests.get(parquet_url, headers=headers, stream=True)
+        response.raise_for_status()
+        with open(local_path, "wb") as f:
+            for chunk in response.iter_content(chunk_size=8192):
+                if chunk:
+                    f.write(chunk)
         logger.info("Download completed successfully.")
         
         terms = [k.lower() for k in keywords]
