@@ -18,6 +18,13 @@ PROMPT = """You compare two jobs for fit to a candidate's resume. Decide which j
 THIS candidate (skills, level, domain, trajectory). Output 'A' if job A fits better, 'B' if job B does.
 You must choose one even when it's close."""
 
+def _source(path):
+    if path.startswith(("http://", "https://")):
+        import fsspec
+        # Configure fsspec HTTP filesystem headers to avoid User-Agent blocking
+        return fsspec.open(path, "rb", headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}).open()
+    return path
+
 def compare_jobs_llm(resume, a, b):
     user_prompt = f"RESUME:\n{resume}\n\n=== JOB A: {a['title']} @ {a['company']} ===\n{a['description'][:4000]}\n\n=== JOB B: {b['title']} @ {b['company']} ===\n{b['description'][:4000]}"
     full_text = f"{PROMPT}\n\n{user_prompt}"
@@ -67,19 +74,7 @@ async def import_open_jobs():
         levels = [l.strip() for l in levels if l.strip()]
         
         parquet_url = "https://download.jobscream.com/open-jobs.parquet"
-        local_path = os.path.join(project_root, "data", "open-jobs.parquet")
-        os.makedirs(os.path.dirname(local_path), exist_ok=True)
-        
-        logger.info(f"Downloading remote Parquet from {parquet_url} to {local_path}...")
-        import requests
-        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
-        response = requests.get(parquet_url, headers=headers, stream=True)
-        response.raise_for_status()
-        with open(local_path, "wb") as f:
-            for chunk in response.iter_content(chunk_size=8192):
-                if chunk:
-                    f.write(chunk)
-        logger.info("Download completed successfully.")
+        logger.info(f"Connecting to remote Parquet: {parquet_url}")
         
         terms = [k.lower() for k in keywords]
         
@@ -104,7 +99,7 @@ async def import_open_jobs():
             return title_ok(r)
 
         # Stream and filter
-        pf = pq.ParquetFile(local_path)
+        pf = pq.ParquetFile(_source(parquet_url))
         candidates = []
         seen = set()
         logger.info("Scanning open-jobs database for candidate matches...")
@@ -230,14 +225,6 @@ async def import_open_jobs():
         return []
     finally:
         db.close()
-        try:
-            project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            local_path = os.path.join(project_root, "data", "open-jobs.parquet")
-            if os.path.exists(local_path):
-                os.remove(local_path)
-                logger.info("Cleaned up local Parquet cache.")
-        except Exception as e:
-            pass
 
 if __name__ == "__main__":
     import asyncio

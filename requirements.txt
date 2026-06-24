@@ -22,4 +22,5 @@ scikit-learn
 sentence-transformers
 pyarrow
 fsspec
+aiohttp
 numpy
