@@ -42,7 +42,7 @@ def clean_json_response(text):
 def call_llm(prompt, json_mode=False):
     sarvam_key = os.getenv("SARVAM_API_KEY")
     if sarvam_key:
-        model = os.getenv("SARVAM_MODEL", "sarvam-2b")
+        model = os.getenv("SARVAM_MODEL", "sarvam-105b")
         url = "https://api.sarvam.ai/v1/chat/completions"
         headers = {
             "Authorization": f"Bearer {sarvam_key.strip()}",
