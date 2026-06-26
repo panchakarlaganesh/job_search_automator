@@ -156,7 +156,7 @@ async def run_automation():
             for raw_job in newly_added_jobs:
                 # Need to find the DB object to get the calculated score
                 job_obj = db.query(Job).filter(Job.job_id_external == raw_job["job_id_external"]).first()
-                if job_obj and (job_obj.match_score or 0.0) > threshold:
+                if job_obj and (job_obj.match_score or 0.0) >= threshold:
                     # Update raw_job with score for notification formatting
                     raw_job['match_score'] = job_obj.match_score
                     high_match_jobs.append(raw_job)
