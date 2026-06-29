@@ -77,7 +77,7 @@ def fetch_all_jobs(keywords, locations, max_items=150, days_back=3):
 
 def fetch_naukri_jobs(keywords, locations, max_items=150):
     """
-    Fetches job listings from Naukri.com using Apify's moving_beacon-owner1/naukri-jobs-scraper.
+    Fetches job listings from Naukri.com using Apify's epicscrapers/naukri-scraper.
     """
     api_token = os.getenv("APIFY_API_TOKEN") or os.getenv("APIFY_TOKEN")
     if not api_token:
@@ -90,72 +90,68 @@ def fetch_naukri_jobs(keywords, locations, max_items=150):
     keyword_list = keywords if isinstance(keywords, list) else [keywords]
     
     # Filter locations to find India-related targets
-    # For Naukri, general "India" should be empty (searches all India). Specific cities (e.g. bangalore) are passed.
-    india_locations = []
-    has_general_india = False
-    india_cities = ["bangalore", "delhi", "mumbai", "hyderabad", "pune", "chennai", "kolkata", "noida", "gurgaon"]
+    india_keywords = ["india", "bangalore", "delhi", "mumbai", "hyderabad", "pune", "chennai", "kolkata", "noida", "gurgaon"]
+    india_locations = [loc for loc in locations if any(ik in loc.lower() for ik in india_keywords)]
     
-    for loc in locations:
-        loc_lower = loc.lower()
-        if "india" in loc_lower:
-            has_general_india = True
-        
-        # Check if any specific Indian city matches
-        found_cities = [city for city in india_cities if city in loc_lower]
-        if found_cities:
-            india_locations.append(found_cities[0])
-            
-    # If "India" general is requested, or no specific Indian locations are found, query all India (empty string)
-    if has_general_india or not india_locations:
-        if "" not in india_locations:
-            india_locations.append("")
+    # If no specific Indian cities are configured, default to search without city filter (which searches all of India)
+    if not india_locations:
+        india_locations = [""]
 
+    start_urls = []
     for keyword in keyword_list:
+        clean_keyword = keyword.lower().replace(" ", "-").replace("/", "-").replace("&", "and")
         for loc in india_locations:
-            run_input = {
-                "searchKeyword": keyword,
-                "maxPages": 3,
-                "maxItems": max(50, max_items // len(india_locations)),
-                "backend": "render",
-                "respectRobots": False,
-                "proxyConfiguration": {"useApifyProxy": True}
+            if loc and loc.lower() != "india":
+                clean_loc = loc.lower().replace(" ", "-")
+                url = f"https://www.naukri.com/{clean_keyword}-jobs-in-{clean_loc}"
+            else:
+                url = f"https://www.naukri.com/{clean_keyword}-jobs"
+            start_urls.append({"url": url})
+
+    if not start_urls:
+        return []
+
+    try:
+        logger.info(f"Running Apify Naukri Scraper (epicscrapers) for {len(start_urls)} target search URLs...")
+        run_input = {
+            "startUrls": start_urls,
+            "maxJobs": max(20, max_items // len(start_urls))
+        }
+        run = client.actor("epicscrapers/naukri-scraper").call(run_input=run_input)
+        dataset_id = run.get("defaultDatasetId") if isinstance(run, dict) else getattr(run, "default_dataset_id", None)
+        
+        count = 0
+        for item in client.dataset(dataset_id).iterate_items():
+            job_url = item.get("url") or item.get("jdUrl") or item.get("jobUrl")
+            title = item.get("title") or item.get("jobTitle")
+            company = item.get("companyName") or item.get("company") or item.get("companyLabel")
+            job_id = str(item.get("id") or item.get("jobId") or item.get("jobID") or "")
+            
+            description = item.get("description") or item.get("jobDescription") or item.get("descriptionSnippet") or ""
+            # Clean HTML tags if description is HTML
+            if description and "<" in description and ">" in description:
+                import re
+                description = re.sub(r'<[^>]*>', ' ', description).strip()
+                description = re.sub(r'\s+', ' ', description)
+            
+            job_data = {
+                "job_id_external": job_id if job_id else stable_job_id("naukri", job_url, title or "", company or ""),
+                "title": title,
+                "company": company,
+                "location": item.get("location") or item.get("jobLocation") or "India",
+                "url": job_url,
+                "description": description,
+                "source": "naukri",
+                "posted_at": item.get("postedDate") or item.get("postedAt") or item.get("postingDate")
             }
-            if loc:
-                run_input["location"] = loc
 
-            try:
-                logger.info(f"Running Apify Naukri scraper for keyword '{keyword}' in '{loc or 'All India'}'...")
-                run = client.actor("moving_beacon-owner1/naukri-jobs-scraper").call(run_input=run_input)
-                dataset_id = run.get("defaultDatasetId") if isinstance(run, dict) else getattr(run, "default_dataset_id", None)
-                
-                count = 0
-                for item in client.dataset(dataset_id).iterate_items():
-                    job_url = item.get("url")
-                    title = item.get("title")
-                    company = item.get("companyName") or item.get("company")
-                    job_id = str(item.get("id") or item.get("jobId") or "")
-                    
-                    # Fallback descriptions
-                    description = item.get("descriptionSnippet") or item.get("description") or ""
-                    
-                    job_data = {
-                        "job_id_external": job_id if job_id else stable_job_id("naukri", job_url, title or "", company or ""),
-                        "title": title,
-                        "company": company,
-                        "location": item.get("location") or loc or "India",
-                        "url": job_url,
-                        "description": description,
-                        "source": "naukri",
-                        "posted_at": item.get("postedDate") or item.get("postedAt")
-                    }
+            if job_data["title"] and job_data["url"]:
+                all_jobs.append(job_data)
+                count += 1
 
-                    if job_data["title"]:
-                        all_jobs.append(job_data)
-                        count += 1
+        logger.info(f"Fetched {count} jobs from Naukri using epicscrapers.")
 
-                logger.info(f"Fetched {count} jobs from Naukri for keyword '{keyword}' in '{loc or 'All India'}'.")
-
-            except Exception as e:
-                logger.error(f"Apify Naukri scraper failed for '{keyword}' in '{loc}': {e}")
+    except Exception as e:
+        logger.error(f"Apify Naukri Scraper failed: {e}")
 
     return all_jobs
