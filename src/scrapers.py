@@ -1,7 +1,17 @@
 import os
+from datetime import datetime
 from apify_client import ApifyClient
 from src.logger import logger
 from src.job_utils import stable_job_id
+
+def parse_date(date_str):
+    if not date_str:
+        return datetime.utcnow()
+    try:
+        clean_str = str(date_str).replace("Z", "+00:00")
+        return datetime.fromisoformat(clean_str)
+    except Exception:
+        return datetime.utcnow()
 
 def fetch_all_jobs(keywords, locations, max_items=150, days_back=3):
     """
@@ -60,7 +70,7 @@ def fetch_all_jobs(keywords, locations, max_items=150, days_back=3):
                     "url": job_url,
                     "description": item.get("description"),
                     "source": "linkedin",
-                    "posted_at": item.get("postedAt")
+                    "posted_date": parse_date(item.get("postedAt"))
                 }
 
                 # Basic validation
@@ -142,7 +152,7 @@ def fetch_naukri_jobs(keywords, locations, max_items=150):
                 "url": job_url,
                 "description": description,
                 "source": "naukri",
-                "posted_at": item.get("postedDate") or item.get("postedAt") or item.get("postingDate")
+                "posted_date": parse_date(item.get("postedDate") or item.get("postedAt") or item.get("postingDate"))
             }
 
             if job_data["title"] and job_data["url"]:
