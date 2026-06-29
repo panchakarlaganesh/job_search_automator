@@ -6,7 +6,7 @@ from datetime import datetime
 from dotenv import load_dotenv
 from src.database import SessionLocal, init_db
 from src.models import Job, JobStatus, RunLog
-from src.scrapers import fetch_all_jobs
+from src.scrapers import fetch_all_jobs, fetch_naukri_jobs
 from src.local_scrapers import fetch_local_jobs_async
 from src.evaluator import evaluate_match, tailor_resume
 from src.resume_manager import get_base_resumes, read_resume, save_tailored_resume
@@ -57,6 +57,12 @@ async def run_automation():
                 apify_jobs = await asyncio.to_thread(fetch_all_jobs, keywords, locations, max_items, days_back)
                 raw_jobs.extend(apify_jobs)
                 logger.info(f"Apify returned {len(apify_jobs)} jobs.")
+                
+                # Fetch Naukri jobs
+                logger.info("Fetching Naukri jobs via Apify...")
+                naukri_jobs = await asyncio.to_thread(fetch_naukri_jobs, keywords, locations, max_items)
+                raw_jobs.extend(naukri_jobs)
+                logger.info(f"Naukri returned {len(naukri_jobs)} jobs.")
             
             # 2. Fetch via local scrapers (to maximize coverage of job titles and URLs)
             logger.info("Running local Playwright scrapers...")

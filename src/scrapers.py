@@ -73,3 +73,76 @@ def fetch_all_jobs(keywords, locations, max_items=150, days_back=3):
             logger.error(f"Apify LinkedIn scraper failed for {location}: {e}")
 
     return all_jobs
+
+
+def fetch_naukri_jobs(keywords, locations, max_items=150):
+    """
+    Fetches job listings from Naukri.com using Apify's moving_beacon-owner1/naukri-jobs-scraper.
+    """
+    api_token = os.getenv("APIFY_API_TOKEN") or os.getenv("APIFY_TOKEN")
+    if not api_token:
+        logger.error("APIFY_API_TOKEN or APIFY_TOKEN not found in environment variables.")
+        return []
+
+    client = ApifyClient(api_token)
+    all_jobs = []
+
+    keyword_list = keywords if isinstance(keywords, list) else [keywords]
+    
+    # Filter locations to find India-related targets
+    india_keywords = ["india", "bangalore", "delhi", "mumbai", "hyderabad", "pune", "chennai", "kolkata", "noida", "gurgaon"]
+    india_locations = [loc for loc in locations if any(ik in loc.lower() for ik in india_keywords)]
+    
+    # If no specific Indian cities or regions are configured, default to search without city filter (which searches all of India)
+    if not india_locations:
+        india_locations = [""]
+
+    for keyword in keyword_list:
+        for loc in india_locations:
+            run_input = {
+                "searchKeyword": keyword,
+                "maxPages": 3,
+                "maxItems": max(50, max_items // len(india_locations)),
+                "backend": "render",
+                "respectRobots": False,
+                "proxyConfiguration": {"useApifyProxy": True}
+            }
+            if loc:
+                run_input["location"] = loc
+
+            try:
+                logger.info(f"Running Apify Naukri scraper for keyword '{keyword}' in '{loc or 'All India'}'...")
+                run = client.actor("moving_beacon-owner1/naukri-jobs-scraper").call(run_input=run_input)
+                dataset_id = run.get("defaultDatasetId") if isinstance(run, dict) else getattr(run, "default_dataset_id", None)
+                
+                count = 0
+                for item in client.dataset(dataset_id).iterate_items():
+                    job_url = item.get("url")
+                    title = item.get("title")
+                    company = item.get("companyName") or item.get("company")
+                    job_id = str(item.get("id") or item.get("jobId") or "")
+                    
+                    # Fallback descriptions
+                    description = item.get("descriptionSnippet") or item.get("description") or ""
+                    
+                    job_data = {
+                        "job_id_external": job_id if job_id else stable_job_id("naukri", job_url, title or "", company or ""),
+                        "title": title,
+                        "company": company,
+                        "location": item.get("location") or loc or "India",
+                        "url": job_url,
+                        "description": description,
+                        "source": "naukri",
+                        "posted_at": item.get("postedDate") or item.get("postedAt")
+                    }
+
+                    if job_data["title"]:
+                        all_jobs.append(job_data)
+                        count += 1
+
+                logger.info(f"Fetched {count} jobs from Naukri for keyword '{keyword}' in '{loc or 'All India'}'.")
+
+            except Exception as e:
+                logger.error(f"Apify Naukri scraper failed for '{keyword}' in '{loc}': {e}")
+
+    return all_jobs
