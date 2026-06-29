@@ -90,12 +90,25 @@ def fetch_naukri_jobs(keywords, locations, max_items=150):
     keyword_list = keywords if isinstance(keywords, list) else [keywords]
     
     # Filter locations to find India-related targets
-    india_keywords = ["india", "bangalore", "delhi", "mumbai", "hyderabad", "pune", "chennai", "kolkata", "noida", "gurgaon"]
-    india_locations = [loc for loc in locations if any(ik in loc.lower() for ik in india_keywords)]
+    # For Naukri, general "India" should be empty (searches all India). Specific cities (e.g. bangalore) are passed.
+    india_locations = []
+    has_general_india = False
+    india_cities = ["bangalore", "delhi", "mumbai", "hyderabad", "pune", "chennai", "kolkata", "noida", "gurgaon"]
     
-    # If no specific Indian cities or regions are configured, default to search without city filter (which searches all of India)
-    if not india_locations:
-        india_locations = [""]
+    for loc in locations:
+        loc_lower = loc.lower()
+        if "india" in loc_lower:
+            has_general_india = True
+        
+        # Check if any specific Indian city matches
+        found_cities = [city for city in india_cities if city in loc_lower]
+        if found_cities:
+            india_locations.append(found_cities[0])
+            
+    # If "India" general is requested, or no specific Indian locations are found, query all India (empty string)
+    if has_general_india or not india_locations:
+        if "" not in india_locations:
+            india_locations.append("")
 
     for keyword in keyword_list:
         for loc in india_locations:
