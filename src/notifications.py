@@ -21,6 +21,15 @@ def notify_intervention(job_title, company, url):
     _send_discord(message)
 
 
+def escape_markdown(text):
+    if not text:
+        return ""
+    special_chars = ['_', '*', '[', '`']
+    for char in special_chars:
+        text = str(text).replace(char, f"\\{char}")
+    return text
+
+
 def notify_new_jobs(jobs_list):
     """
     Sends a summary of newly found jobs, categorized by region.
@@ -41,8 +50,12 @@ def notify_new_jobs(jobs_list):
         
         current_message = header
         for i, job in enumerate(jobs):
+            clean_title = escape_markdown(job.get('title', ''))
+            clean_company = escape_markdown(job.get('company', ''))
+            clean_location = escape_markdown(job.get('location', 'N/A'))
+            
             score_text = f"🔥 *Match: {int(job['match_score']*100)}%*" if job.get('match_score') else ""
-            job_entry = f"{i + 1}. {job['title']} @ {job['company']}\n{score_text}\n📍 {job.get('location', 'N/A')}\n🔗 [View Job]({job['url']})\n\n"
+            job_entry = f"{i + 1}. {clean_title} @ {clean_company}\n{score_text}\n📍 {clean_location}\n🔗 [View Job]({job['url']})\n\n"
 
             if len(current_message) + len(job_entry) > 3500:
                 _send_telegram(current_message)
@@ -60,6 +73,7 @@ def notify_new_jobs(jobs_list):
 
 
 def _send_telegram(message):
+    import time
     token = os.getenv("TELEGRAM_BOT_TOKEN")
     chat_id = os.getenv("TELEGRAM_CHAT_ID")
 
@@ -78,6 +92,9 @@ def _send_telegram(message):
         response.raise_for_status()
     except Exception as e:
         logger.error(f"Failed to send Telegram notification: {e}")
+    finally:
+        # Sleep to avoid Telegram rate limits (Too Many Requests 429)
+        time.sleep(1.5)
 
 
 def _send_discord(message):
