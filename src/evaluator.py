@@ -115,27 +115,30 @@ def evaluate_match(job_description, base_resume_content):
     nlp_score += (len(found_priority) * 0.05)
     nlp_score = min(nlp_score, 1.0)
 
-    # 3. AI Reasoning Pass (Grounded in NLP score)
+    # 3. AI Reasoning Pass (Grounded in NLP score + Dealbreakers + Language Gate)
     prompt = f"""
     You are an ATS Scoring Algorithm. Evaluate the match between the Job Description and the Resume.
     
-    --- CANDIDATE EXPERTISE NOTES ---
+    --- CANDIDATE PROFILE & PREFERENCES ---
     - Candidate is a Lead SRE with 10+ years experience.
     - Candidate has EXTENSIVE experience in Production Support and Application Support.
-    - IMPORTANT: Candidate is actively preparing for Terraform, Ansible, AWS, and GitHub Actions. 
+    - Languages Spoken: English (Fluent/Native). No professional fluency in German, French, Danish, Japanese, etc.
+    - Visa Status: Requires sponsorship/valid authorization to work. If JD explicitly states "No sponsorship", "US Citizen only", or "Green Card required", it is a hard deal-breaker.
+    - Commute/Workplace Preference: Remote or Hybrid (US/India). If the job is strictly on-site in a location not matching the candidate's residence, it is a deal-breaker.
     - TREAT 'Terraform', 'Ansible', 'AWS', 'Production Support', 'Application Support', and 'GitHub Actions' as FULL MATCHES if they appear in the JD.
-    - Treat 'Terraform', 'Ansible' as 'IaC'.
-    - Treat 'Splunk', 'Grafana', 'Prometheus' as 'Observability'.
     
-    --- SCORING CRITERIA ---
-    1. **Technical Alignment (50%)**: How many of the JD's tools/roles are in the Resume? (Give full points for Terraform/Ansible/AWS/Production Support/GitHub Actions)
-    2. **Seniority Match (30%)**: Does 'Lead' status match?
-    3. **Domain Match (20%)**: Experience in industry/scale?
+    --- SCORING CRITERIA & GATES ---
+    1. **Language Gate**: Does this job require a language other than English? If yes, flag as a gate failure.
+    2. **Deal-breakers / Red flags**: Does the job posting explicitly forbid visa sponsorship or require strict local citizenship / on-site attendance that violates candidate criteria?
+    3. **Technical Alignment (50%)**: How many of the JD's tools/roles are in the Resume?
+    4. **Seniority Match (30%)**: Does 'Lead' status match?
+    5. **Domain Match (20%)**: Experience in industry/scale?
 
     Current NLP Similarity Score: {nlp_score:.2f}
 
     Return a JSON object with:
     - "score": A float (0.0 to 1.0) representing the total match percentage.
+    - "failed_gates": ["Language Gate failed (requires French)", "Visa Sponsorship dealbreaker", "Strict onsite dealbreaker"] or []
     - "breakdown": {{
         "technical": "Percentage",
         "seniority": "Percentage",
@@ -153,7 +156,12 @@ def evaluate_match(job_description, base_resume_content):
     response_text = call_llm(prompt, json_mode=True)
     try:
         cleaned = clean_json_response(response_text)
-        return json.loads(cleaned)
+        result = json.loads(cleaned)
+        # Apply strict penalty if any hard gates/dealbreakers failed
+        if result.get("failed_gates"):
+            logger.warning(f"Job failed matching gates: {result['failed_gates']}")
+            result["score"] = min(result["score"], 0.15) # penalize score heavily
+        return result
     except Exception as e:
         # Fallback to pure NLP if AI fails
         return {
@@ -162,7 +170,50 @@ def evaluate_match(job_description, base_resume_content):
             "breakdown": {"technical": f"{int(nlp_score*100)}%"}
         }
 
+def review_tailored_resume(original_resume, tailored_resume, job_description):
+    """
+    Reviewer agent pass to ensure no hallucinations, fake credentials, or formatting issues were introduced.
+    Returns clean additions or a corrected JSON block.
+    """
+    prompt = f"""
+    You are an AI Resume Quality Auditor. Review a tailored resume against the base resume and job description.
+    Your task is to detect and remove any fabricated experience, skills, certifications, or tools that the candidate does not actually possess.
+    
+    --- BASE RESUME (THE TRUTH) ---
+    {original_resume[:8000]}
+    
+    --- TAILORED RESUME (TO AUDIT) ---
+    {tailored_resume[:10000]}
+    
+    --- JOB DESCRIPTION ---
+    {job_description[:8000]}
+    
+    CRITICAL RULES:
+    1. The tailored resume must NOT claim experience with tools or technologies NOT mentioned in the Base Resume, UNLESS they are in the allowed preparation list: 'Terraform', 'Ansible', 'AWS', 'GitHub Actions'.
+    2. Do NOT fabricate employment dates, company names, or job titles.
+    3. Ensure bullet points sound natural and match professional SRE terminology.
+    
+    If the tailored resume contains fabricated claims, output a corrected version of the tailored resume. Otherwise, output the tailored resume exactly.
+    Return a JSON object with:
+    - "passed_audit": true/false
+    - "audit_feedback": "Description of any issues found"
+    - "corrected_resume": "Full text of the corrected resume"
+    """
+    response_text = call_llm(prompt, json_mode=True)
+    try:
+        cleaned = clean_json_response(response_text)
+        audit_res = json.loads(cleaned)
+        if audit_res.get("passed_audit") is True:
+            return tailored_resume
+        else:
+            logger.warning(f"Resume failed reviewer audit: {audit_res.get('audit_feedback')}. Using corrected version.")
+            return audit_res.get("corrected_resume", tailored_resume)
+    except Exception as e:
+        logger.error(f"Audit step failed: {e}")
+        return tailored_resume
+
 def tailor_resume(job_description, base_resume_content):
+    # Step 1: Draft tailoring additions
     prompt = f"""
     You are an AI-powered ATS Optimization Expert. Provide SPECIFIC ADDITIONS for a resume.
     
@@ -189,7 +240,12 @@ def tailor_resume(job_description, base_resume_content):
     try:
         cleaned = clean_json_response(response_text)
         additions = json.loads(cleaned)
-        return merge_additions_to_resume(base_resume_content, additions)
+        drafted_resume = merge_additions_to_resume(base_resume_content, additions)
+        
+        # Step 2: Reviewer pass (prevent hallucinations)
+        logger.info("Running Reviewer agent pass on tailored resume...")
+        final_resume = review_tailored_resume(base_resume_content, drafted_resume, job_description)
+        return final_resume
     except Exception as e:
         logger.error(f"Tailoring failed: {e}")
         return base_resume_content

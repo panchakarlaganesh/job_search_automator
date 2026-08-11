@@ -63,6 +63,18 @@ async def run_automation():
                 naukri_jobs = await asyncio.to_thread(fetch_naukri_jobs, keywords, locations, max_items)
                 raw_jobs.extend(naukri_jobs)
                 logger.info(f"Naukri returned {len(naukri_jobs)} jobs.")
+            else:
+                logger.info("APIFY_API_TOKEN not found. Skipping Apify scraper.")
+
+            # 1b. Fetch via LinkedIn Guest Scraper (free/no token required)
+            try:
+                logger.info("Fetching LinkedIn jobs via Guest Scraper (free, no token needed)...")
+                from src.scrapers.linkedin_guest import fetch_linkedin_guest_jobs
+                guest_jobs = await asyncio.to_thread(fetch_linkedin_guest_jobs, keywords, locations, max_items, days_back)
+                raw_jobs.extend(guest_jobs)
+                logger.info(f"LinkedIn Guest Scraper returned {len(guest_jobs)} jobs.")
+            except Exception as e:
+                logger.error(f"LinkedIn Guest Scraper failed: {e}")
             
             # 2. Fetch via local scrapers (to maximize coverage of job titles and URLs)
             logger.info("Running local Playwright scrapers...")

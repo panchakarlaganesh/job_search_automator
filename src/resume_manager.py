@@ -81,6 +81,115 @@ class ResumePDF(FPDF):
                 self.set_font("Helvetica", '', 10); text = line.replace('**', '')
                 self.multi_cell(0, 6, self.safe_text(text))
 
+import subprocess
+import shutil
+
+def compile_pdf_with_latex(content, pdf_path):
+    """
+    Tries to compile the markdown resume into a professional PDF using LaTeX.
+    Falls back to FPDF if LaTeX is not found or fails.
+    """
+    latex_cmd = None
+    for cmd in ["lualatex", "xelatex", "pdflatex"]:
+        if shutil.which(cmd):
+            latex_cmd = cmd
+            break
+            
+    if not latex_cmd:
+        logger.info("No LaTeX compiler found (lualatex/xelatex/pdflatex). Falling back to FPDF.")
+        return False
+
+    temp_tex_path = pdf_path.replace(".pdf", ".tex")
+    
+    try:
+        # Convert Markdown to basic LaTeX
+        latex_lines = [
+            r"\documentclass[11pt,a4paper]{article}",
+            r"\usepackage[utf8]{inputenc}",
+            r"\usepackage[margin=0.75in]{geometry}",
+            r"\usepackage{hyperref}",
+            r"\usepackage{enumitem}",
+            r"\setlist[itemize]{noitemsep, topsep=2pt}",
+            r"\pagestyle{empty}",
+            r"\begin{document}"
+        ]
+        
+        in_list = False
+        lines = content.split('\n')
+        for line in lines:
+            stripped = line.strip()
+            if not stripped:
+                if in_list:
+                    latex_lines.append(r"\end{itemize}")
+                    in_list = False
+                latex_lines.append("")
+                continue
+                
+            # Escaping special LaTeX characters safely
+            clean_line = stripped.replace("&", r"\&").replace("%", r"\%").replace("$", r"\$").replace("_", r"\_")
+            # Replace markdown bold **text** with \textbf{text}
+            clean_line = re.sub(r'\*\*(.*?)\*\*', r'\\textbf{\1}', clean_line)
+            
+            if clean_line.startswith('# '):
+                if in_list:
+                    latex_lines.append(r"\end{itemize}")
+                    in_list = False
+                latex_lines.append(r"\begin{center}")
+                latex_lines.append(r"{\Large \textbf{" + clean_line[2:] + r"}}")
+                latex_lines.append(r"\end{center}")
+            elif clean_line.startswith('## '):
+                if in_list:
+                    latex_lines.append(r"\end{itemize}")
+                    in_list = False
+                latex_lines.append(r"\section*{" + clean_line[3:] + r"}")
+            elif clean_line.startswith('### '):
+                if in_list:
+                    latex_lines.append(r"\end{itemize}")
+                    in_list = False
+                latex_lines.append(r"\subsection*{" + clean_line[4:] + r"}")
+            elif clean_line.startswith('- ') or clean_line.startswith('* '):
+                if not in_list:
+                    latex_lines.append(r"\begin{itemize}")
+                    in_list = True
+                latex_lines.append(r"\item " + clean_line[2:])
+            else:
+                if in_list:
+                    latex_lines.append(r"\end{itemize}")
+                    in_list = False
+                latex_lines.append(clean_line + r"\\")
+                
+        if in_list:
+            latex_lines.append(r"\end{itemize}")
+            
+        latex_lines.append(r"\end{document}")
+        
+        with open(temp_tex_path, "w", encoding="utf-8") as f:
+            f.write("\n".join(latex_lines))
+            
+        logger.info(f"Compiling LaTeX using {latex_cmd}...")
+        working_dir = os.path.dirname(pdf_path)
+        subprocess.run([
+            latex_cmd,
+            "-interaction=nonstopmode",
+            f"-output-directory={working_dir}",
+            temp_tex_path
+        ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=20, check=True)
+        
+        # Clean up auxiliary LaTeX files
+        for ext in [".aux", ".log", ".out", ".tex"]:
+            aux_file = pdf_path.replace(".pdf", ext)
+            if os.path.exists(aux_file):
+                os.remove(aux_file)
+                
+        logger.info(f"Successfully compiled professional LaTeX PDF: {pdf_path}")
+        return True
+    except Exception as e:
+        logger.warning(f"LaTeX compilation failed: {e}. Falling back to FPDF.")
+        # Cleanup temp tex if exists
+        if os.path.exists(temp_tex_path):
+            os.remove(temp_tex_path)
+        return False
+
 def save_tailored_resume(job_id, content, output_dir="resumes/tailored"):
     """Saves tailored resume as MD, PDF, and DOCX."""
     if not os.path.exists(output_dir): os.makedirs(output_dir)
@@ -93,11 +202,13 @@ def save_tailored_resume(job_id, content, output_dir="resumes/tailored"):
         with open(md_path, "w", encoding="utf-8") as f:
             f.write(content)
             
-        # 2. Save PDF
-        pdf = ResumePDF()
-        pdf.add_page()
-        pdf.render_markdown(content)
-        pdf.output(pdf_path)
+        # 2. Save PDF (Try LaTeX, fallback to FPDF)
+        compiled = compile_pdf_with_latex(content, pdf_path)
+        if not compiled:
+            pdf = ResumePDF()
+            pdf.add_page()
+            pdf.render_markdown(content)
+            pdf.output(pdf_path)
 
         # 3. Save DOCX
         doc = Document()
