@@ -207,10 +207,11 @@ def fetch_linkedin_guest_jobs(keywords, locations, max_items=150, days_back=7, j
             description = clean_html(with_breaks)
             description = re.sub(r'\n{3,}', '\n\n', description)
             job["description"] = description
-            enriched_jobs.append(job)
-        else:
-            # Keep job even without description or fallback
-            pass
+
+        # Always keep the job — even if the detail page had no description div.
+        # main.py will skip scoring for short descriptions but will still store
+        # the job record so it can be enriched on a future run.
+        enriched_jobs.append(job)
             
         time.sleep(random.uniform(0.5, 1.0))
         

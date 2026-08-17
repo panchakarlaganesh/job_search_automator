@@ -164,10 +164,10 @@ async def run_automation():
 
         # 4. Direct Notifications
         if newly_added_jobs:
-            # Filter by match score threshold (default to 10%)
+            # Read threshold from config/search.json (the user's configured 40%)
             try:
-                threshold = float(os.getenv("CHECK_MATCH_THRESHOLD", "0.10"))
-            except ValueError:
+                threshold = float(config.get("match_threshold", os.getenv("CHECK_MATCH_THRESHOLD", "0.10")))
+            except (ValueError, TypeError):
                 threshold = 0.10
                 
             high_match_jobs = []

@@ -27,20 +27,21 @@ def _source(path):
 
 def compare_jobs_llm(resume, a, b):
     user_prompt = f"RESUME:\n{resume}\n\n=== JOB A: {a['title']} @ {a['company']} ===\n{a['description'][:4000]}\n\n=== JOB B: {b['title']} @ {b['company']} ===\n{b['description'][:4000]}"
-    full_text = f"{PROMPT}\n\n{user_prompt}"
-    
+    full_text = f"{PROMPT}\n\n{user_prompt}\n\nAnswer with only 'A' or 'B'."
+
     # Simple rate-limiting sleep to prevent hitting API limits
     time.sleep(2.0)
-    
-    response = call_llm(full_text, json_mode=True)
+
+    response = call_llm(full_text, json_mode=False)  # plain text: expects 'A' or 'B'
     if not response:
         return "A"
-    try:
-        cleaned = clean_json_response(response)
-        return json.loads(cleaned).get("winner", "A")
-    except Exception as e:
-        logger.warning(f"Failed to parse winner: {e}")
-        return "A"
+    # Robustly extract winner: find first standalone A or B in the response
+    import re as _re
+    m = _re.search(r'\b([AB])\b', response.strip())
+    if m:
+        return m.group(1)
+    logger.warning(f"Could not parse winner from LLM response: {response[:80]!r}")
+    return "A"
 
 async def import_open_jobs():
     init_db()
@@ -94,7 +95,12 @@ async def import_open_jobs():
 
         def passes(r):
             if r["function"] != "engineering": return False
-            if levels and r["level"] not in levels: return False
+            # Case-insensitive level match; also allow null/missing levels through
+            if levels:
+                job_level = (r["level"] or "").strip().lower()
+                allowed = [l.lower() for l in levels]
+                if job_level and job_level not in allowed:
+                    return False
             if not country_ok(r): return False
             return title_ok(r)
 
