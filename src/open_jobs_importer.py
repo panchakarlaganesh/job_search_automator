@@ -1,7 +1,9 @@
 import os
 import json
+import re
 import time
 import urllib.request
+import urllib.error
 from datetime import datetime
 import pyarrow.parquet as pq
 from src.database import SessionLocal, init_db
@@ -18,11 +20,34 @@ PROMPT = """You compare two jobs for fit to a candidate's resume. Decide which j
 THIS candidate (skills, level, domain, trajectory). Output 'A' if job A fits better, 'B' if job B does.
 You must choose one even when it's close."""
 
+
+def _preflight(url: str, timeout: int = 8) -> tuple[bool, str]:
+    """Quick HEAD check before streaming a large remote file.
+
+    Returns (ok, reason). Fails fast so a dead/renamed endpoint does not
+    block the pipeline for 8+ minutes.
+    """
+    try:
+        req = urllib.request.Request(url, method="HEAD",
+                                     headers={"User-Agent": "job-search-automator/1.0"})
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            if resp.status == 200:
+                return True, "ok"
+            return False, f"HTTP {resp.status}"
+    except urllib.error.HTTPError as e:
+        return False, f"HTTP {e.code} {e.reason}"
+    except Exception as e:
+        return False, str(e)
+
 def _source(path):
     if path.startswith(("http://", "https://")):
         import fsspec
-        # Configure fsspec HTTP filesystem headers to avoid User-Agent blocking
-        return fsspec.open(path, "rb", headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}).open()
+        return fsspec.open(
+            path, "rb",
+            headers={"User-Agent": "job-search-automator/1.0"},
+            # Fail fast — don't hang 8 min waiting for a dead host
+            client_kwargs={"timeout": 30},
+        ).open()
     return path
 
 def compare_jobs_llm(resume, a, b):
@@ -76,7 +101,17 @@ async def import_open_jobs():
         
         parquet_url = "https://download.jobscream.com/open-jobs.parquet"
         logger.info(f"Connecting to remote Parquet: {parquet_url}")
-        
+
+        # Pre-flight HEAD check — skip immediately if the endpoint is dead/renamed
+        # instead of hanging for 8+ minutes on a streaming timeout.
+        ok, reason = _preflight(parquet_url)
+        if not ok:
+            logger.warning(
+                f"open-jobs Parquet endpoint unreachable ({reason}). "
+                "The file may have moved or been renamed. Skipping open-jobs import."
+            )
+            return []
+
         terms = [k.lower() for k in keywords]
         
         def country_ok(r):
