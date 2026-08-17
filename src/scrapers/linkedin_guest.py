@@ -10,11 +10,9 @@ from src.job_utils import stable_job_id, normalize_job_url
 SEARCH_URL = "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search"
 DETAIL_URL = "https://www.linkedin.com/jobs-guest/jobs/api/jobPosting"
 
-USER_AGENTS = [
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-]
+# Honest self-identifying User-Agent (upstream fix da12d6e).
+# Spoofed browser UAs violate LinkedIn's ToS and are more likely to be blocked.
+USER_AGENT = "Mozilla/5.0 (compatible; linkedin-search-cli/1.0)"
 
 def clean_html(text):
     if not text:
@@ -55,7 +53,7 @@ def extract_div_content(html_content, class_name):
 
 def http_get(url, params=None):
     headers = {
-        "User-Agent": random.choice(USER_AGENTS),
+        "User-Agent": USER_AGENT,
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "Accept-Language": "en-US,en;q=0.9",
         "X-Requested-With": "XMLHttpRequest"
@@ -88,14 +86,27 @@ def http_get(url, params=None):
             delay = min(delay * 2, 8.0)
     return None
 
-def fetch_linkedin_guest_jobs(keywords, locations, max_items=150, days_back=7):
+def fetch_linkedin_guest_jobs(keywords, locations, max_items=150, days_back=7, jobage_minutes=None):
     """
     Fetches jobs from LinkedIn Guest Search API (zero API key/Playwright requirement).
+
+    Args:
+        jobage_minutes: If set, overrides days_back for sub-day freshness filtering
+                        (upstream fix b167efa). E.g. jobage_minutes=90 returns jobs
+                        posted in the last 90 minutes. Cannot be combined with days_back.
     """
+    if jobage_minutes is not None and days_back != 7:
+        raise ValueError("jobage_minutes and days_back are mutually exclusive. Use one or the other.")
+
     all_jobs = []
-    
-    # Translate days_back to LinkedIn f_TPR format (seconds)
-    tpr = f"r{days_back * 86400}" if days_back else None
+
+    # Translate freshness preference to LinkedIn f_TPR format (seconds)
+    if jobage_minutes is not None:
+        tpr = f"r{jobage_minutes * 60}"  # sub-day precision (upstream b167efa)
+    elif days_back:
+        tpr = f"r{days_back * 86400}"
+    else:
+        tpr = None
     
     for kw in keywords:
         for loc in locations:

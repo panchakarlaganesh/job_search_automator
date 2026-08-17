@@ -1,13 +1,52 @@
 import os
+import re
+import pathlib
+from datetime import datetime, timezone
 from src.logger import logger
 
 class BaseApplier:
     async def apply(self, job, resume_path, base_resume):
         raise NotImplementedError
 
+    def _archive_posting(self, job) -> pathlib.Path | None:
+        """Save verbatim job posting to disk before the browser agent holds it.
+
+        Ported from upstream fix 0e1a895: /apply archives the job posting while
+        it still holds it in context, preventing loss when the listing expires.
+        File: documents/applications/<company>_<role>/job_posting.md
+        """
+        safe = re.compile(r"[^\w\-]")  # keep word chars and hyphens
+        company_slug = safe.sub("_", (job.company or "unknown").strip()).lower()
+        role_slug = safe.sub("_", (job.title or "role").strip()).lower()
+        folder = pathlib.Path("documents") / "applications" / f"{company_slug}_{role_slug}"
+        folder.mkdir(parents=True, exist_ok=True)
+        posting_path = folder / "job_posting.md"
+        try:
+            content_lines = [
+                f"# {job.title} — {job.company}",
+                f"",
+                f"**URL:** {job.url}",
+                f"**Archived:** {datetime.now(timezone.utc).isoformat()}",
+                f"**Source:** {getattr(job, 'source', 'unknown')}",
+                f"",
+                "---",
+                f"",
+                getattr(job, "description", "") or "_(no description available)_",
+            ]
+            posting_path.write_text("\n".join(content_lines), encoding="utf-8")
+            logger.info(f"Archived job posting to {posting_path}")
+            return posting_path
+        except OSError as e:
+            logger.warning(f"Could not archive job posting: {e}")
+            return None
+
 class BrowserUseApplier(BaseApplier):
     async def apply(self, job, resume_path, base_resume):
         logger.info(f"Starting browser-use auto-apply agent for {job.company} - {job.title}...")
+
+        # Archive the posting immediately before the browser agent runs (upstream fix 0e1a895).
+        # This preserves the full job text even if the listing expires mid-session.
+        self._archive_posting(job)
         
         try:
             from browser_use import Agent
