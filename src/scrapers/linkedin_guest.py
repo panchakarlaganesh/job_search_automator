@@ -191,28 +191,51 @@ def fetch_linkedin_guest_jobs(keywords, locations, max_items=150, days_back=7, j
     # Now, let's fetch detail description for the scraped jobs
     logger.info(f"LinkedIn Guest Search: Fetching detail page for {len(all_jobs)} jobs...")
     enriched_jobs = []
-    
+
+    # CSS class selectors to try in order — LinkedIn updates markup periodically
+    DESC_SELECTORS = [
+        "show-more-less-html__markup",
+        "description__text",
+        "decorated-job-posting__details",
+        "jobs-description-content__text",
+        "job-view-layout",
+    ]
+
     for i, job in enumerate(all_jobs):
         job_id = job["job_id_external"]
         detail_url = f"{DETAIL_URL}/{job_id}"
-        
-        detail_html = http_get(detail_url)
-        if not detail_html:
-            continue
-            
-        desc_html = extract_div_content(detail_html, "show-more-less-html__markup") or extract_div_content(detail_html, "description__text")
-        if desc_html:
-            with_breaks = re.sub(r'<\s*br\s*\/?>', '\n', desc_html, flags=re.IGNORECASE)
-            with_breaks = re.sub(r'<\/(p|li|ul|ol|div|h\d)>', '\n', with_breaks, flags=re.IGNORECASE)
-            description = clean_html(with_breaks)
-            description = re.sub(r'\n{3,}', '\n\n', description)
-            job["description"] = description
 
-        # Always keep the job — even if the detail page had no description div.
-        # main.py will skip scoring for short descriptions but will still store
-        # the job record so it can be enriched on a future run.
+        detail_html = http_get(detail_url)
+
+        # Always keep the job card regardless of whether detail fetch succeeded.
+        # If detail is unavailable the job is stored with an empty description
+        # and main.py will skip scoring but still persist it for future enrichment.
+        if detail_html:
+            # Try each known selector in order
+            desc_html = None
+            for selector in DESC_SELECTORS:
+                desc_html = extract_div_content(detail_html, selector)
+                if desc_html:
+                    break
+
+            if desc_html:
+                with_breaks = re.sub(r'<\s*br\s*\/?>', '\n', desc_html, flags=re.IGNORECASE)
+                with_breaks = re.sub(r'<\/(p|li|ul|ol|div|h\d)>', '\n', with_breaks, flags=re.IGNORECASE)
+                description = clean_html(with_breaks)
+                description = re.sub(r'\n{3,}', '\n\n', description).strip()
+                if description:
+                    job["description"] = description
+            else:
+                # Last-resort: strip all HTML and take whatever plain text remains
+                plain = clean_html(detail_html)
+                plain = re.sub(r'\s{4,}', '\n\n', plain).strip()
+                if len(plain) > 200:
+                    job["description"] = plain[:8000]  # cap to avoid huge blobs
+                    logger.debug(f"Used plain-text fallback for job {job_id}")
+
         enriched_jobs.append(job)
-            
         time.sleep(random.uniform(0.5, 1.0))
-        
+
+    desc_count = sum(1 for j in enriched_jobs if len(j.get("description", "")) > 200)
+    logger.info(f"LinkedIn Guest Search: {len(enriched_jobs)} jobs kept, {desc_count} with full descriptions.")
     return enriched_jobs
