@@ -1,8 +1,17 @@
+import sys
 import os
 import re
 import pathlib
+import asyncio
+import json
 from datetime import datetime, timezone
 from src.logger import logger
+
+# Force UTF-8 output so emoji in browser-use logs don't crash on Windows cp1252
+if sys.stdout.encoding and sys.stdout.encoding.lower() != 'utf-8':
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+if sys.stderr.encoding and sys.stderr.encoding.lower() != 'utf-8':
+    sys.stderr.reconfigure(encoding='utf-8', errors='replace')
 
 class BaseApplier:
     async def apply(self, job, resume_path, base_resume):
@@ -49,8 +58,8 @@ class BrowserUseApplier(BaseApplier):
         self._archive_posting(job)
         
         try:
-            from browser_use import Agent
-            from browser_use.llm.models import get_llm_by_name
+            from browser_use.agent.service import Agent
+            from browser_use.browser.session import BrowserSession
         except ImportError as e:
             logger.error(f"Failed to import browser-use: {e}")
             raise RuntimeError("Auto-apply dependencies are not installed.")
@@ -67,29 +76,62 @@ class BrowserUseApplier(BaseApplier):
         # Set key in environment for browser-use
         os.environ["GOOGLE_API_KEY"] = gemini_key
         
-        # Initialize Gemini model for browser-use agent
-        llm = get_llm_by_name("google_gemini-2.5-flash")
-        
-        # Build prompt instructions for the browser agent
+        # Build Gemini LLM for browser-use v0.13.1
+        from google import genai as google_genai
+        from browser_use.llm.google.chat import ChatGoogle
+        llm = ChatGoogle(model=os.getenv("GEMINI_MODEL", "gemini-2.5-flash"))
+
+        # Read credentials from env
+        naukri_email    = os.getenv("NAUKRI_EMAIL", "")
+        naukri_password = os.getenv("NAUKRI_PASSWORD", "")
+        linkedin_email    = os.getenv("LINKEDIN_EMAIL", "")
+        linkedin_password = os.getenv("LINKEDIN_PASSWORD", "")
+
         task_text = (
-            f"Please go to the job application page: {job.url}\n"
-            f"Fill out and submit the application for the position of '{job.title}' at '{job.company}'.\n"
-            f"Use the information from the candidate's resume below to answer any questions (e.g. contact info, work history, skills):\n\n"
-            f"{base_resume}\n\n"
-            f"When you find a file input field to upload a Resume or CV, upload the resume file located at: {os.path.abspath(resume_path)}.\n"
-            f"Verify all fields and submit the application once ready."
+            f"Your goal: apply for the job at this URL: {job.url}\n\n"
+            f"== LOGIN INSTRUCTIONS ==\n"
+            f"If you land on a Naukri.com login page:\n"
+            f"  - Email: {naukri_email}\n"
+            f"  - Password: {naukri_password}\n"
+            f"If you land on a LinkedIn login page:\n"
+            f"  - Email: {linkedin_email}\n"
+            f"  - Password: {linkedin_password}\n"
+            f"After logging in, navigate back to the job URL and apply.\n\n"
+            f"== APPLICATION INSTRUCTIONS ==\n"
+            f"- Fill out the application form for '{job.title}' at '{job.company}'.\n"
+            f"- Use the candidate resume below for all fields (name, email, phone, experience, skills).\n"
+            f"- If there is a file upload field for Resume/CV, upload: {os.path.abspath(resume_path)}\n"
+            f"- If the job listing is expired or removed, stop immediately and report it.\n"
+            f"- Once all fields are filled, verify and submit the application.\n\n"
+            f"== CANDIDATE RESUME ==\n"
+            f"{base_resume}"
         )
-        
+
         logger.info(f"Launching autonomous agent with URL: {job.url}")
-        
+
+        # headed=True so the user can see the browser and handle logins manually
+        browser_session = BrowserSession(headless=False)
+
         agent = Agent(
             task=task_text,
-            llm=llm
+            llm=llm,
+            browser_session=browser_session,
         )
         
         try:
-            result = await agent.run()
-            logger.info(f"Agent finished applying to {job.company}. Result: {result}")
+            result = await agent.run(max_steps=30)
+            result_text = ""
+            try:
+                result_text = str(result)
+            except Exception:
+                result_text = repr(result)
+
+            # Detect expired listing from agent result
+            if "EXPIRED" in result_text.upper() or "expired" in result_text.lower():
+                logger.warning(f"Job listing expired: {job.company} - {job.title}")
+                return "EXPIRED"
+
+            logger.info(f"Agent finished applying to {job.company}.")
             return True
         except Exception as e:
             logger.error(f"Agent failed applying to {job.company}: {e}")
