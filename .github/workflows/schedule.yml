@@ -8,6 +8,7 @@ on:
 jobs:
   run-automator:
     runs-on: ubuntu-latest
+    timeout-minutes: 60   # Hard cap — prevents 6-hour runaway runs
     permissions:
       contents: write
     steps:
@@ -17,7 +18,7 @@ jobs:
           fetch-depth: 0
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
