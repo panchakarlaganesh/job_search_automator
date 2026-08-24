@@ -125,42 +125,67 @@ async def run_automation():
         except Exception as e:
             logger.error(f"Open-jobs importer failed: {e}")
 
-        # 3. Automatic Scoring (Skip Tailoring during batch to prevent timeouts)
+        # 3. Automatic Scoring — only score jobs from the current scrape window
         if newly_added_jobs:
             # Filter to only score jobs with real descriptions (not placeholders)
             scoreable_jobs = [j for j in newly_added_jobs if len(j.get("description", "") or "") > 200]
             skipped = len(newly_added_jobs) - len(scoreable_jobs)
             if skipped:
                 logger.info(f"Skipping {skipped} jobs with placeholder/stub descriptions (< 200 chars).")
-            
-            logger.info(f"Processing analysis for {len(scoreable_jobs)} jobs with real descriptions...")
+
+            # Filter to only jobs posted within the current scrape window (days_back).
+            # This prevents re-scoring thousands of old DB jobs and burning API quota.
+            from datetime import timezone, timedelta
+            cutoff = datetime.now(timezone.utc) - timedelta(days=days_back)
+            fresh_scoreable = []
+            for j in scoreable_jobs:
+                posted = j.get("posted_date")
+                if posted:
+                    try:
+                        if isinstance(posted, str):
+                            posted = datetime.fromisoformat(posted.replace("Z", "+00:00"))
+                        if posted.tzinfo is None:
+                            posted = posted.replace(tzinfo=timezone.utc)
+                        if posted >= cutoff:
+                            fresh_scoreable.append(j)
+                        else:
+                            logger.debug(f"Skipping old job (posted {posted.date()}): {j.get('title')} @ {j.get('company')}")
+                    except Exception:
+                        fresh_scoreable.append(j)  # can't parse date — include to be safe
+                else:
+                    fresh_scoreable.append(j)  # no date — include to be safe
+
+            old_count = len(scoreable_jobs) - len(fresh_scoreable)
+            if old_count:
+                logger.info(f"Skipping {old_count} jobs older than {days_back} days (already in DB from prior runs).")
+
+            logger.info(f"Processing analysis for {len(fresh_scoreable)} fresh jobs with real descriptions...")
             base_content = read_resume("resumes/base_resume.md")
-            
-            for i, job_data in enumerate(scoreable_jobs):
+
+            for i, job_data in enumerate(fresh_scoreable):
                 try:
                     job_obj = db.query(Job).filter(Job.job_id_external == job_data["job_id_external"]).first()
                     if not job_obj: continue
 
                     if job_obj.match_score is not None and job_obj.match_score > 0.0:
-                        logger.info(f"[{i+1}/{len(scoreable_jobs)}] Skipping scoring for {job_obj.company} (already scored: {job_obj.match_score})")
+                        logger.info(f"[{i+1}/{len(fresh_scoreable)}] Skipping {job_obj.company} (already scored: {job_obj.match_score:.0%})")
                         continue
 
-                    logger.info(f"[{i+1}/{len(scoreable_jobs)}] Analyzing for {job_obj.company}...")
-                    
-                    # A. Calculate Match Score
+                    logger.info(f"[{i+1}/{len(fresh_scoreable)}] Analyzing for {job_obj.company}...")
+
                     analysis = evaluate_match(job_obj.description, base_content)
                     if analysis:
                         job_obj.match_score = analysis.get("score", 0.0)
                         job_obj.match_reason = analysis.get("reason", "")
                         job_obj.tech_stack = json.dumps(analysis.get("breakdown", {}))
-                    
-                    
+
                     db.commit()
-                    
+
                 except Exception as e:
                     logger.error(f"Failed to process job {job_data.get('job_id_external')}: {e}")
                     db.rollback()
                     continue
+
 
         # 4. Direct Notifications
         if newly_added_jobs:
