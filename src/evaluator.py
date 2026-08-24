@@ -39,7 +39,16 @@ def clean_json_response(text):
     if match: return match.group(1)
     return text
 
+import time
+
+# Set to True when Gemini spending cap (permanent 429) is detected.
+# All subsequent calls will skip Gemini and fall through to Ollama.
+_GEMINI_CAP_EXCEEDED = False
+
 def call_llm(prompt, json_mode=False):
+    global _GEMINI_CAP_EXCEEDED
+
+    # --- Sarvam (optional premium override) ---
     sarvam_key = os.getenv("SARVAM_API_KEY")
     if sarvam_key:
         model = os.getenv("SARVAM_MODEL", "sarvam-105b")
@@ -50,48 +59,74 @@ def call_llm(prompt, json_mode=False):
         }
         payload = {
             "model": model,
-            "messages": [
-                {"role": "user", "content": prompt}
-            ],
+            "messages": [{"role": "user", "content": prompt}],
             "temperature": 0.1
         }
         if json_mode:
             payload["response_format"] = {"type": "json_object"}
-            
         try:
             logger.info(f"Sarvam AI: Sending request to {model}...")
             response = requests.post(url, json=payload, headers=headers, timeout=120)
             response.raise_for_status()
-            res_json = response.json()
-            return res_json["choices"][0]["message"]["content"]
+            return response.json()["choices"][0]["message"]["content"]
         except Exception as e:
             logger.error(f"Sarvam AI error: {e}")
-            # Fall back to Gemini/Ollama if Sarvam fails
+            # fall through to Gemini/Ollama
 
-    if USE_LOCAL_LLM:
-        payload = {"model": OLLAMA_MODEL, "prompt": prompt, "stream": False}
-        if json_mode: payload["format"] = "json"
-        try:
-            logger.info(f"Ollama: Sending request to {OLLAMA_MODEL}...")
-            response = requests.post(OLLAMA_URL, json=payload, timeout=300)
-            response.raise_for_status()
-            return response.json().get("response", "")
-        except Exception as e:
-            logger.error(f"Ollama error: {e}")
-            return None
-    else:
+    # --- Gemini (cloud, with spending-cap guard + exponential backoff) ---
+    if not USE_LOCAL_LLM and not _GEMINI_CAP_EXCEEDED:
         api_key = os.getenv("GEMINI_API_KEY")
-        if not api_key: return None
-        try:
-            if HAS_NEW_SDK:
-                response = client.models.generate_content(model=GEMINI_MODEL_ID, contents=prompt)
-                return response.text
-            else:
-                response = gemini_model.generate_content(prompt)
-                return response.text
-        except Exception as e:
-            logger.error(f"Gemini error: {e}")
-            return None
+        if api_key:
+            MAX_RETRIES = 3
+            for attempt in range(MAX_RETRIES):
+                try:
+                    if HAS_NEW_SDK:
+                        response = client.models.generate_content(
+                            model=GEMINI_MODEL_ID, contents=prompt
+                        )
+                    else:
+                        response = gemini_model.generate_content(prompt)
+                    return response.text
+
+                except Exception as e:
+                    err_str = str(e)
+                    # Spending cap = permanent, no point retrying
+                    if "spending cap" in err_str.lower() or (
+                        "RESOURCE_EXHAUSTED" in err_str and "spend" in err_str.lower()
+                    ):
+                        logger.error(
+                            "Gemini monthly spending cap exceeded — switching to Ollama "
+                            "for the rest of this run. Visit https://ai.studio/spend to raise it."
+                        )
+                        _GEMINI_CAP_EXCEEDED = True
+                        break  # fall through to Ollama
+
+                    # Transient rate-limit (per-minute quota) — backoff and retry
+                    elif "RESOURCE_EXHAUSTED" in err_str or "429" in err_str:
+                        wait = 2 ** attempt * 5  # 5s, 10s, 20s
+                        logger.warning(f"Gemini rate-limited (attempt {attempt+1}). Waiting {wait}s...")
+                        time.sleep(wait)
+
+                    else:
+                        logger.error(f"Gemini error: {e}")
+                        return None  # non-quota error, don't retry
+
+            if not _GEMINI_CAP_EXCEEDED:
+                logger.error("Gemini: max retries reached, falling through to Ollama.")
+
+    # --- Ollama (local, free fallback) ---
+    payload = {"model": OLLAMA_MODEL, "prompt": prompt, "stream": False}
+    if json_mode:
+        payload["format"] = "json"
+    try:
+        logger.info(f"Ollama: Sending request to {OLLAMA_MODEL}...")
+        response = requests.post(OLLAMA_URL, json=payload, timeout=300)
+        response.raise_for_status()
+        return response.json().get("response", "")
+    except Exception as e:
+        logger.error(f"Ollama error: {e}")
+        return None
+
 
 def calculate_nlp_similarity(text1, text2):
     """Calculates TF-IDF cosine similarity between two texts."""
